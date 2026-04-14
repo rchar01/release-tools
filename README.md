@@ -5,4 +5,7 @@ and Just.
 
 Repos should consume this toolkit as a submodule mounted at `tools/release`.
 
-See `docs/usage.md` for the integration contract.
+See these docs:
+
+- `docs/usage.md` for the integration contract
+- `docs/agent-release-flow.md` for the reusable release pattern and rationale
