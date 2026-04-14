@@ -36,6 +36,6 @@ log "Publishing ${tag}"
 	RELEASE_REPO_ROOT="$clone_dir" GITEA_TOKEN="$token" "$clone_toolkit_dir/bin/run-goreleaser.sh" release --clean --release-notes "$notes_file"
 )
 
-RELEASE_REPO_ROOT="$clone_dir" VERSION="$tag" NOTES_FILE="$notes_file" GITEA_TOKEN="$token" "$clone_toolkit_dir/bin/update-release-body.sh"
+RELEASE_REPO_ROOT="$clone_dir" VERSION="$tag" NOTES_FILE="$notes_file" CODEBERG_TOKEN="$token" "$clone_toolkit_dir/bin/update-release-body.sh"
 
 log "Published ${tag}"

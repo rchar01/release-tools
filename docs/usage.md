@@ -24,7 +24,7 @@ Expected consumer variables:
 Local maintainer auth should come from:
 
 ```bash
-export GITEA_TOKEN="$(cat ~/.config/codeberg/token)"
+export CODEBERG_TOKEN="$(cat ~/.config/codeberg/token)"
 ```
 
-CI should provide `GITEA_TOKEN` through repository secrets.
+CI should provide `CODEBERG_TOKEN` through repository secrets.

@@ -71,6 +71,11 @@ goreleaser_config() {
 }
 
 resolve_token() {
+	if [[ -n "${CODEBERG_TOKEN:-}" ]]; then
+		printf '%s\n' "$CODEBERG_TOKEN"
+		return
+	fi
+
 	if [[ -n "${GITEA_TOKEN:-}" ]]; then
 		printf '%s\n' "$GITEA_TOKEN"
 		return
@@ -81,7 +86,7 @@ resolve_token() {
 		return
 	fi
 
-	err 'GITEA_TOKEN is required. Export it from ~/.config/codeberg/token or set it directly in the environment.'
+	err 'CODEBERG_TOKEN is required. Export it from ~/.config/codeberg/token or set it directly in the environment.'
 }
 
 resolve_goreleaser_bin() {
