@@ -2,7 +2,7 @@
 
 ## Scope
 - This repo is a shared release toolkit for Go projects.
-- Consumer repos are expected to mount it at `tools/release`.
+- Consumer repos are expected to bootstrap a pinned checkout such as `.tmp/release-tools/current`.
 - Keep repo-specific release config in the consumer repo; keep shared release behavior in `bin/`.
 
 ## Agent Workflow Expectations
@@ -19,14 +19,12 @@
 - `docs/usage.md`
 - `docs/agent-release-flow.md`
 - `make/release-tools.mk`
-- `just/release-tools.just`
 - `bin/common.sh`
 - `bin/run-goreleaser.sh`
 
 ## Repo Shape
 - `bin/`: source of truth for release behavior
 - `make/release-tools.mk`: shared Make frontend for consumer repos
-- `just/release-tools.just`: shared Just frontend for consumer repos
 - `docs/usage.md`: public integration contract
 - `docs/agent-release-flow.md`: rationale and invariants for the release flow
 
@@ -53,19 +51,13 @@
   - `make -f make/release-tools.mk release`
   - `make -f make/release-tools.mk release-tag VERSION=vX.Y.Z`
   - `make -f make/release-tools.mk release-notes VERSION=vX.Y.Z`
-- Just frontend:
-  - `just --justfile just/release-tools.just check-tools`
-  - `just --justfile just/release-tools.just release-check`
-  - `just --justfile just/release-tools.just release-snapshot`
-  - `just --justfile just/release-tools.just release`
-  - `just --justfile just/release-tools.just release-tag`
-  - `just --justfile just/release-tools.just release-notes`
 
 ## Verified Behavior To Preserve
-- Keep Make and Just as thin wrappers over `bin/*.sh`.
+- Keep Make as a thin wrapper over `bin/*.sh`.
 - Reuse `bin/ensure-tools.sh` for tool checks instead of duplicating command checks in frontends.
+- The Make frontend fails fast on missing `RELEASE_PROJECT` and `RELEASE_OWNER`; `release-tag` also requires `VERSION`.
 - `release-check` runs `goreleaser build --snapshot --clean`; it is the validation path used here.
-- `release-tag.sh` publishes from a clean temporary clone of the exact tag and runs the clone’s own `tools/release` scripts.
+- `release-tag.sh` publishes from a clean temporary clone of the exact tag while running the current bootstrapped toolkit against that clone through `RELEASE_REPO_ROOT`.
 - `run-goreleaser.sh` must `cd "$REPO_ROOT"` before executing Goreleaser.
 - `release-notes.sh` currently supports `RELEASE_NOTES_MODE=news-md` and `none`.
 - `update-release-body.sh` currently supports `RELEASE_BODY_MODE=patch` and `none`.

@@ -16,7 +16,6 @@ news-md)
 	news_section="$(extract_news_section "$news_file" "$tag")"
 	notes_file="$TMP_DIR/release-notes-${tag}.md"
 	{
-		printf '# %s\n\n' "$tag"
 		if [[ -n "$news_section" ]]; then
 			printf '%s\n' "$news_section"
 		else

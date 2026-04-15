@@ -11,6 +11,7 @@ if ! git -C "$REPO_ROOT" rev-parse -q --verify "refs/tags/${tag}" >/dev/null; th
 fi
 
 clone_dir="$TMP_DIR/release-${tag}"
+toolkit_dir="$(toolkit_root)"
 
 cleanup() {
 	rm -rf "$clone_dir"
@@ -23,19 +24,17 @@ rm -rf "$clone_dir"
 
 log "Creating temporary clone for ${tag}"
 git clone --quiet --branch "$tag" --depth 1 "file://$REPO_ROOT/.git" "$clone_dir"
-git -C "$clone_dir" submodule update --init --recursive
 
-clone_toolkit_dir="$clone_dir/tools/release"
-[[ -d "$clone_toolkit_dir/bin" ]] || err 'expected tools/release submodule in the cloned tag checkout'
+[[ -d "$toolkit_dir/bin" ]] || err "expected toolkit bin directory at ${toolkit_dir}/bin"
 
-notes_file="$(RELEASE_REPO_ROOT="$clone_dir" "$clone_toolkit_dir/bin/release-notes.sh")"
+notes_file="$(RELEASE_REPO_ROOT="$clone_dir" "$toolkit_dir/bin/release-notes.sh")"
 
 log "Publishing ${tag}"
 (
 	cd "$clone_dir"
-	RELEASE_REPO_ROOT="$clone_dir" CODEBERG_TOKEN="$token" "$clone_toolkit_dir/bin/run-goreleaser.sh" release --clean --release-notes "$notes_file"
+	RELEASE_REPO_ROOT="$clone_dir" CODEBERG_TOKEN="$token" "$toolkit_dir/bin/run-goreleaser.sh" release --clean --release-notes "$notes_file"
 )
 
-RELEASE_REPO_ROOT="$clone_dir" VERSION="$tag" NOTES_FILE="$notes_file" CODEBERG_TOKEN="$token" "$clone_toolkit_dir/bin/update-release-body.sh"
+RELEASE_REPO_ROOT="$clone_dir" VERSION="$tag" NOTES_FILE="$notes_file" CODEBERG_TOKEN="$token" "$toolkit_dir/bin/update-release-body.sh"
 
 log "Published ${tag}"
