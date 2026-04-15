@@ -35,6 +35,9 @@ The pattern used by this toolkit has seven parts:
 - repo-local install script for release assets if consumers need binary installs
 - `Makefile`
 
+This repository includes copyable consumer examples in `examples/` and a full
+consumer setup guide in `docs/usage.md`.
+
 ## Why This Pattern Works
 
 ### 1. Stable artifact contract

@@ -16,6 +16,7 @@
 
 ## Read First
 - `README.md`
+- `docs/README.md`
 - `docs/usage.md`
 - `docs/agent-release-flow.md`
 - `make/release-tools.mk`
@@ -25,7 +26,9 @@
 ## Repo Shape
 - `bin/`: source of truth for release behavior
 - `make/release-tools.mk`: shared Make frontend for consumer repos
-- `docs/usage.md`: public integration contract
+- `examples/`: ready-to-copy consumer integration files
+- `docs/README.md`: short docs index
+- `docs/usage.md`: public integration contract and end-to-end consumer setup guide
 - `docs/agent-release-flow.md`: rationale and invariants for the release flow
 
 ## Public Contract
