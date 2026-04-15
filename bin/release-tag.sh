@@ -33,7 +33,7 @@ notes_file="$(RELEASE_REPO_ROOT="$clone_dir" "$clone_toolkit_dir/bin/release-not
 log "Publishing ${tag}"
 (
 	cd "$clone_dir"
-	RELEASE_REPO_ROOT="$clone_dir" GITEA_TOKEN="$token" "$clone_toolkit_dir/bin/run-goreleaser.sh" release --clean --release-notes "$notes_file"
+	RELEASE_REPO_ROOT="$clone_dir" CODEBERG_TOKEN="$token" "$clone_toolkit_dir/bin/run-goreleaser.sh" release --clean --release-notes "$notes_file"
 )
 
 RELEASE_REPO_ROOT="$clone_dir" VERSION="$tag" NOTES_FILE="$notes_file" CODEBERG_TOKEN="$token" "$clone_toolkit_dir/bin/update-release-body.sh"

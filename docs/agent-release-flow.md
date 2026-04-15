@@ -175,7 +175,7 @@ export CODEBERG_TOKEN="$(cat ~/.config/codeberg/token)"
 For CI:
 
 - store `CODEBERG_TOKEN` as a repository secret
-- map it to `GITEA_TOKEN` only for the Goreleaser process
+- let the toolkit map it to `GITEA_TOKEN` only for the Goreleaser process
 
 ## Recommended Next Improvements For The Toolkit
 

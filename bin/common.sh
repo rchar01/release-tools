@@ -76,11 +76,6 @@ resolve_token() {
 		return
 	fi
 
-	if [[ -n "${GITEA_TOKEN:-}" ]]; then
-		printf '%s\n' "$GITEA_TOKEN"
-		return
-	fi
-
 	if [[ -r "${HOME}/.config/codeberg/token" ]]; then
 		tr -d '\r\n' <"${HOME}/.config/codeberg/token"
 		return

@@ -20,6 +20,7 @@ Expected consumer variables:
 - `RELEASE_NOTES_MODE`
 - `RELEASE_BODY_MODE`
 - `GORELEASER_CONFIG`
+- `VERSION`
 
 Local maintainer auth should come from:
 
@@ -28,3 +29,6 @@ export CODEBERG_TOKEN="$(cat ~/.config/codeberg/token)"
 ```
 
 CI should provide `CODEBERG_TOKEN` through repository secrets.
+
+`CODEBERG_TOKEN` is the only public token variable. The toolkit maps it to
+`GITEA_TOKEN` internally only when invoking Goreleaser.
