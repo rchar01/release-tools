@@ -1,5 +1,10 @@
 
 
+# ==================================================
+# Installed by git-tools (v1.2.2)
+# Managed file: safe to replace by running bin/git-tools again.
+# ==================================================
+#
 # <type>(<scope>)!: <subject>
 #
 # <body>
@@ -10,7 +15,8 @@
 # SUBJECT
 # - Imperative mood
 # - Use recommended verbs (see list below)
-# - Max 50 characters
+# - Full header/title max 68 characters
+# - Subject text max 50 characters
 # - Capitalize first letter
 # - No trailing period
 #
@@ -52,4 +58,9 @@
 #
 # --------------------------------------------------
 # One commit = one logical change
+#
+#
+# ==================================================
+# Git status appears below.
+# ==================================================
 #
