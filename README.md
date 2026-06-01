@@ -27,7 +27,8 @@ This toolkit adds the workflow around it:
   `GITEA_TOKEN`
 - safer `release-tag` publishing from a clean temporary clone of the exact tag
 - consistent Goreleaser execution from the repository root
-- optional release notes and release body helpers
+- release notes generation from `NEWS.md`, passed into Goreleaser during
+  publish, with optional release body patching after publish
 
 ## Values
 

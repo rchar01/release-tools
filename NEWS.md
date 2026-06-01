@@ -8,6 +8,8 @@ This file gives a short, release-oriented view of what changed between versions.
 
 - clarify the README with the project purpose, values, and what the toolkit adds
   around Goreleaser
+- call out release notes generation and release body patching as workflow
+  features added around Goreleaser publishing
 - document `v1.2.1` as the current release to pin in consuming repositories
 
 ## v1.2.0 - 2026-04-15
