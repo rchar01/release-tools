@@ -4,6 +4,12 @@ This file gives a short, release-oriented view of what changed between versions.
 
 ## Unreleased
 
+## v1.2.1 - 2026-06-01
+
+- clarify the README with the project purpose, values, and what the toolkit adds
+  around Goreleaser
+- document `v1.2.1` as the current release to pin in consuming repositories
+
 ## v1.2.0 - 2026-04-15
 
 - add a consumer integration guide and ready-to-copy examples for Make-only runtime bootstrap
