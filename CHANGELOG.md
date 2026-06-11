@@ -9,7 +9,17 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- release-tools brand assets and README logo
+
+## [v1.2.1] - 2026-06-01
+
 ### Changed
+
+- clarified the README with the project purpose, values, and what the toolkit
+  adds around Goreleaser
+- documented release notes generation and release body patching as workflow
+  features added around Goreleaser publishing
+- documented `v1.2.1` as the current release to pin in consuming repositories
 
 ### Fixed
 

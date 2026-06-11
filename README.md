@@ -1,5 +1,9 @@
 # release-tools
 
+<div align="center">
+  <img src="assets/brand/release-tools-forge-avatar-transparent-512.png" width="256" alt="release-tools logo">
+</div>
+
 Shared release automation for Go repositories using Goreleaser, Codeberg, and
 Make.
 

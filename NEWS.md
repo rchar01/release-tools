@@ -4,6 +4,8 @@ This file gives a short, release-oriented view of what changed between versions.
 
 ## Unreleased
 
+- add release-tools brand assets and show the logo in the README
+
 ## v1.2.1 - 2026-06-01
 
 - clarify the README with the project purpose, values, and what the toolkit adds
