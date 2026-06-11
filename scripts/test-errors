@@ -25,7 +25,13 @@ expect_error() {
 }
 
 rm -rf "$TMP_DIR"
-mkdir -p "$TMP_DIR/no-config" "$TMP_DIR/missing-goreleaser" "$TMP_DIR/missing-news"
+mkdir -p "$TMP_DIR/no-config" "$TMP_DIR/no-tag" "$TMP_DIR/missing-goreleaser" "$TMP_DIR/missing-news"
+
+cat >"$TMP_DIR/no-tag/.release-tools.env" <<'EOF'
+RELEASE_PROJECT=demo
+RELEASE_OWNER=owner
+EOF
+git -C "$TMP_DIR/no-tag" init --quiet
 
 cat >"$TMP_DIR/missing-goreleaser/.release-tools.env" <<'EOF'
 RELEASE_PROJECT=demo
@@ -60,6 +66,6 @@ expect_error '[ERROR] release notes source not found:' \
 	env RELEASE_REPO_ROOT="$TMP_DIR/missing-news" GORELEASER_BIN=/bin/true "$ROOT_DIR/bin/release-tools" doctor
 
 expect_error '[ERROR] VERSION or TAG is required when the current commit is not an exact tag' \
-	env RELEASE_REPO_ROOT="$ROOT_DIR" "$ROOT_DIR/bin/release-tools" notes
+	env -u VERSION -u TAG RELEASE_REPO_ROOT="$TMP_DIR/no-tag" "$ROOT_DIR/bin/release-tools" notes
 
 rm -rf "$TMP_DIR"

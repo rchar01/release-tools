@@ -12,23 +12,25 @@ if ! git -C "$REPO_ROOT" rev-parse -q --verify "refs/tags/${tag}" >/dev/null; th
 fi
 
 clone_dir="$TMP_DIR/release-${tag}"
+notes_tmp_dir="$TMP_DIR/release-notes-${tag}"
 toolkit_dir="$(toolkit_root)"
 
 cleanup() {
-	rm -rf "$clone_dir"
+	rm -rf "$clone_dir" "$notes_tmp_dir"
 }
 
 trap cleanup EXIT
 
 ensure_tmp_dir
 rm -rf "$clone_dir"
+rm -rf "$notes_tmp_dir"
 
 log "Creating temporary clone for ${tag}"
 git clone --quiet --branch "$tag" --depth 1 "file://$REPO_ROOT/.git" "$clone_dir"
 
 [[ -d "$toolkit_dir/bin" ]] || err "expected toolkit bin directory at ${toolkit_dir}/bin"
 
-notes_file="$(RELEASE_REPO_ROOT="$clone_dir" "$toolkit_dir/bin/release-notes.sh")"
+notes_file="$(RELEASE_REPO_ROOT="$clone_dir" RELEASE_TMP_DIR="$notes_tmp_dir" "$toolkit_dir/bin/release-notes.sh")"
 
 log "Publishing ${tag}"
 (
