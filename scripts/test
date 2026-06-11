@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
+cd "$ROOT_DIR"
+
+rm -rf dist
+bash -n bin/* scripts/*
+shellcheck -x -P bin bin/* scripts/*
+
+bin/release-tools help >/dev/null
+scripts/test-errors
+bin/release-tools doctor >/dev/null
+bin/release-tools check >/dev/null
+bin/release-tools snapshot >/dev/null
+notes_file="$(bin/release-tools notes v2.0.0)"
+grep -q 'CLI-only release workflow' "$notes_file"
+rm -f "$notes_file"
+rmdir .tmp 2>/dev/null || true
+rm -rf dist

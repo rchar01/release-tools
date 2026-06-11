@@ -4,6 +4,7 @@ set -euo pipefail
 TOOLKIT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO_ROOT="${RELEASE_REPO_ROOT:-$(pwd)}"
 TMP_DIR="${RELEASE_TMP_DIR:-${REPO_ROOT}/.tmp}"
+RELEASE_CONFIG_FILE="${RELEASE_CONFIG_FILE:-${REPO_ROOT}/.release-tools.env}"
 
 log() {
 	printf '[INFO] %s\n' "$1"
@@ -17,6 +18,38 @@ err() {
 require_cmd() {
 	command -v "$1" >/dev/null 2>&1 || err "$1 is required"
 }
+
+load_config_file() {
+	local line key value
+	[[ -f "$RELEASE_CONFIG_FILE" ]] || return 0
+
+	while IFS= read -r line || [[ -n "$line" ]]; do
+		line="${line%$'\r'}"
+		[[ -n "$line" ]] || continue
+		[[ "$line" == \#* ]] && continue
+		[[ "$line" == *=* ]] || err "invalid release config line in ${RELEASE_CONFIG_FILE}: ${line}"
+
+		key="${line%%=*}"
+		value="${line#*=}"
+		case "$key" in
+		RELEASE_PROJECT|RELEASE_TOOLS_VERSION|RELEASE_OWNER|RELEASE_REPO|RELEASE_API_URL|RELEASE_DOWNLOAD_URL|RELEASE_NOTES_SOURCE|RELEASE_NOTES_MODE|RELEASE_BODY_MODE|GORELEASER_CONFIG|GORELEASER_BIN|RELEASE_REQUIRE_GO)
+			if [[ -z "${!key+x}" ]]; then
+				value="${value%\"}"
+				value="${value#\"}"
+				value="${value%\'}"
+				value="${value#\'}"
+				printf -v "$key" '%s' "$value"
+				declare -gx "$key"
+			fi
+			;;
+		*)
+			err "unsupported release config key in ${RELEASE_CONFIG_FILE}: ${key}"
+			;;
+		esac
+	done <"$RELEASE_CONFIG_FILE"
+}
+
+load_config_file
 
 repo_root() {
 	printf '%s\n' "$REPO_ROOT"
@@ -84,8 +117,23 @@ resolve_token() {
 	err 'CODEBERG_TOKEN is required. Export it from ~/.config/codeberg/token or set it directly in the environment.'
 }
 
+resolve_optional_token() {
+	if [[ -n "${CODEBERG_TOKEN:-}" ]]; then
+		printf '%s\n' "$CODEBERG_TOKEN"
+		return 0
+	fi
+
+	if [[ -r "${HOME}/.config/codeberg/token" ]]; then
+		tr -d '\r\n' <"${HOME}/.config/codeberg/token"
+		return 0
+	fi
+
+	return 1
+}
+
 resolve_goreleaser_bin() {
 	if [[ -n "${GORELEASER_BIN:-}" ]]; then
+		[[ -x "$GORELEASER_BIN" ]] || err "GORELEASER_BIN is not executable: ${GORELEASER_BIN}"
 		printf '%s\n' "$GORELEASER_BIN"
 		return
 	fi

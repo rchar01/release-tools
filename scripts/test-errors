@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
+TMP_DIR="${RELEASE_TMP_DIR:-${ROOT_DIR}/.tmp}/error-tests"
+
+expect_error() {
+	local expected="$1"
+	shift
+	local output status
+	set +e
+	output="$({ "$@"; } 2>&1)"
+	status=$?
+	set -e
+
+	if [[ $status -eq 0 ]]; then
+		printf 'expected failure, command succeeded: %s\n' "$*" >&2
+		exit 1
+	fi
+
+	if [[ "$output" != *"$expected"* ]]; then
+		printf 'expected error containing: %s\nactual output:\n%s\n' "$expected" "$output" >&2
+		exit 1
+	fi
+}
+
+rm -rf "$TMP_DIR"
+mkdir -p "$TMP_DIR/no-config" "$TMP_DIR/missing-goreleaser" "$TMP_DIR/missing-news"
+
+cat >"$TMP_DIR/missing-goreleaser/.release-tools.env" <<'EOF'
+RELEASE_PROJECT=demo
+RELEASE_OWNER=owner
+GORELEASER_CONFIG=.goreleaser.yaml
+EOF
+touch "$TMP_DIR/missing-goreleaser/.goreleaser.yaml"
+cp NEWS.md "$TMP_DIR/missing-goreleaser/NEWS.md"
+
+cat >"$TMP_DIR/missing-news/.release-tools.env" <<'EOF'
+RELEASE_PROJECT=demo
+RELEASE_OWNER=owner
+GORELEASER_CONFIG=.goreleaser.yaml
+RELEASE_NOTES_MODE=news-md
+RELEASE_NOTES_SOURCE=NEWS.md
+EOF
+touch "$TMP_DIR/missing-news/.goreleaser.yaml"
+
+expect_error '[ERROR] RELEASE_PROJECT is required' \
+	env -u RELEASE_PROJECT -u RELEASE_OWNER -u RELEASE_REPO RELEASE_REPO_ROOT="$TMP_DIR/no-config" "$ROOT_DIR/bin/release-tools" check
+
+expect_error '[ERROR] RELEASE_OWNER is required' \
+	env -u RELEASE_OWNER -u RELEASE_REPO RELEASE_PROJECT=demo RELEASE_REPO_ROOT="$TMP_DIR/no-config" "$ROOT_DIR/bin/release-tools" check
+
+expect_error '[ERROR] VERSION is required, e.g. publish-tag v1.2.3' \
+	env RELEASE_REPO_ROOT="$ROOT_DIR" "$ROOT_DIR/bin/release-tools" publish-tag
+
+expect_error '[ERROR] GORELEASER_BIN is not executable: /missing/goreleaser' \
+	env RELEASE_REPO_ROOT="$TMP_DIR/missing-goreleaser" GORELEASER_BIN=/missing/goreleaser "$ROOT_DIR/bin/release-tools" doctor
+
+expect_error '[ERROR] release notes source not found:' \
+	env RELEASE_REPO_ROOT="$TMP_DIR/missing-news" GORELEASER_BIN=/bin/true "$ROOT_DIR/bin/release-tools" doctor
+
+expect_error '[ERROR] VERSION or TAG is required when the current commit is not an exact tag' \
+	env RELEASE_REPO_ROOT="$ROOT_DIR" "$ROOT_DIR/bin/release-tools" notes
+
+rm -rf "$TMP_DIR"

@@ -4,6 +4,15 @@ This file gives a short, release-oriented view of what changed between versions.
 
 ## Unreleased
 
+## v2.0.0 - 2026-06-11
+
+- switch to a CLI-only release workflow with `bin/release-tools` as the sole
+  public entrypoint
+- add `.release-tools.env` config loading with environment overrides
+- add self-release support for `release-tools` using a GoReleaser meta archive
+- make Go optional unless `RELEASE_REQUIRE_GO=1` is set
+- add dev-container verification scripts for CLI behavior and error messages
+- remove the shared Make wrapper from the public integration model
 - add release-tools brand assets and show the logo in the README
 
 ## v1.2.1 - 2026-06-01

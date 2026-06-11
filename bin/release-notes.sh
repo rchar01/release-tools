@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# shellcheck source=bin/common.sh
 source "$(dirname -- "$0")/common.sh"
 
 tag="$(resolve_tag)"
@@ -19,7 +20,7 @@ news-md)
 		if [[ -n "$news_section" ]]; then
 			printf '%s\n' "$news_section"
 		else
-			printf -- '- No summary entry found in `%s`.\n' "$notes_source"
+			printf -- "- No summary entry found in \`%s\`.\n" "$notes_source"
 		fi
 	} >"$notes_file"
 	printf '%s\n' "$notes_file"

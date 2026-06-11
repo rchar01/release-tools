@@ -7,11 +7,28 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-06-11
+
 ### Added
 
+- `bin/release-tools` as the sole public command surface for tool checks,
+  doctor, check, snapshot, publish, publish-tag, and notes commands
+- `.release-tools.env` config loading with environment overrides
+- self-release support through `.release-tools.env` and `.goreleaser.yaml`
+- dev-container verification scripts for CLI behavior and error messages
 - release-tools brand assets and README logo
 
-## [v1.2.1] - 2026-06-01
+### Changed
+
+- changed `release-tools check` to run `goreleaser check`
+- made Go optional unless `RELEASE_REQUIRE_GO=1` is set
+- updated docs from Make-only runtime bootstrap to CLI-only runtime bootstrap
+
+### Removed
+
+- shared Make wrapper and Make-based consumer integration example
+
+## [1.2.1] - 2026-06-01
 
 ### Changed
 
@@ -20,8 +37,6 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - documented release notes generation and release body patching as workflow
   features added around Goreleaser publishing
 - documented `v1.2.1` as the current release to pin in consuming repositories
-
-### Fixed
 
 ## [1.2.0] - 2026-04-15
 

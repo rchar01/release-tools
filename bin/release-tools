@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+BIN_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
+# shellcheck source=bin/common.sh
+source "$BIN_DIR/common.sh"
+
+usage() {
+	cat <<'USAGE'
+Usage: release-tools <command> [args]
+
+Commands:
+  help                  Show this help text
+  tools-check           Check required local tools
+  doctor                Check release-tools configuration
+  check                 Validate GoReleaser configuration
+  snapshot              Build a local snapshot release without publishing
+  publish               Publish the current tag
+  publish-tag [VERSION] Publish a specific existing tag from a clean clone
+  notes [VERSION]       Generate release notes for VERSION or the current tag
+
+Environment:
+  RELEASE_CONFIG_FILE   Config file, defaults to .release-tools.env
+  RELEASE_PROJECT       Project name used by release scripts
+  RELEASE_TOOLS_VERSION Pinned release-tools tag for bootstrap scripts
+  RELEASE_OWNER         Codeberg/Gitea owner
+  RELEASE_REPO          Repository name, defaults to RELEASE_PROJECT
+  RELEASE_API_URL       Forge API URL, defaults to Codeberg
+  RELEASE_DOWNLOAD_URL  Forge download URL, defaults to Codeberg
+  RELEASE_NOTES_SOURCE  Release notes source, defaults to NEWS.md
+  RELEASE_NOTES_MODE    Release notes mode, defaults to news-md
+  RELEASE_BODY_MODE     Release body mode, defaults to none
+  GORELEASER_CONFIG     GoReleaser config path, defaults to .goreleaser.yaml
+  RELEASE_REQUIRE_GO    Set to 1 when a consumer release requires Go
+  VERSION               Tag/version for publish-tag and notes
+USAGE
+}
+
+require_no_args() {
+	local command_name="$1"
+	shift
+	[[ $# -eq 0 ]] || err "${command_name} does not accept arguments"
+}
+
+require_release_vars() {
+	[[ -n "${RELEASE_PROJECT:-}" ]] || err 'RELEASE_PROJECT is required'
+	[[ -n "${RELEASE_OWNER:-}" ]] || err 'RELEASE_OWNER is required'
+}
+
+set_optional_version_arg() {
+	local command_name="$1"
+	shift
+	[[ $# -le 1 ]] || err "${command_name} accepts at most one VERSION argument"
+	if [[ $# -eq 1 ]]; then
+		VERSION="$1"
+		export VERSION
+	fi
+}
+
+require_version_arg_or_env() {
+	local command_name="$1"
+	shift
+	set_optional_version_arg "$command_name" "$@"
+	[[ -n "${VERSION:-}" ]] || err "VERSION is required, e.g. ${command_name} v1.2.3"
+}
+
+doctor() {
+	require_no_args doctor "$@"
+	require_release_vars
+
+	local config notes_source notes_mode body_mode goreleaser_bin
+	config="$(goreleaser_config)"
+	notes_source="$(release_notes_source)"
+	notes_mode="$(release_notes_mode)"
+	body_mode="$(release_body_mode)"
+
+	[[ -f "$REPO_ROOT/$config" ]] || err "GoReleaser config not found: ${REPO_ROOT}/${config}"
+
+	case "$notes_mode" in
+	news-md)
+		[[ -f "$REPO_ROOT/$notes_source" ]] || err "release notes source not found: ${REPO_ROOT}/${notes_source}"
+		;;
+	none) ;;
+	*) err "unsupported RELEASE_NOTES_MODE: ${notes_mode}" ;;
+	esac
+
+	case "$body_mode" in
+	patch|none) ;;
+	*) err "unsupported RELEASE_BODY_MODE: ${body_mode}" ;;
+	esac
+
+	"$BIN_DIR/ensure-tools.sh"
+	goreleaser_bin="$(resolve_goreleaser_bin)"
+
+	log "Repository root: ${REPO_ROOT}"
+	log "Toolkit root: ${TOOLKIT_DIR}"
+	log "Project: ${RELEASE_PROJECT}"
+	log "Owner: ${RELEASE_OWNER}"
+	log "Repo: $(release_repo)"
+	log "GoReleaser config: ${config}"
+	log "GoReleaser binary: ${goreleaser_bin}"
+	log "Release notes mode: ${notes_mode}"
+	log "Release body mode: ${body_mode}"
+	log 'release-tools configuration looks valid'
+}
+
+command_name="${1:-help}"
+if [[ $# -gt 0 ]]; then
+	shift
+fi
+
+case "$command_name" in
+help|-h|--help)
+	require_no_args help "$@"
+	usage
+	;;
+tools-check)
+	require_no_args tools-check "$@"
+	"$BIN_DIR/ensure-tools.sh"
+	;;
+doctor)
+	doctor "$@"
+	;;
+check)
+	require_no_args check "$@"
+	require_release_vars
+	"$BIN_DIR/release-check.sh"
+	;;
+snapshot)
+	require_no_args snapshot "$@"
+	require_release_vars
+	"$BIN_DIR/release-snapshot.sh"
+	;;
+publish)
+	require_no_args publish "$@"
+	require_release_vars
+	"$BIN_DIR/release-current.sh"
+	;;
+publish-tag)
+	require_release_vars
+	require_version_arg_or_env publish-tag "$@"
+	"$BIN_DIR/release-tag.sh"
+	;;
+notes)
+	require_release_vars
+	set_optional_version_arg notes "$@"
+	"$BIN_DIR/release-notes.sh"
+	;;
+*)
+	usage >&2
+	err "unknown command: ${command_name}"
+	;;
+esac

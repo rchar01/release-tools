@@ -1,0 +1,42 @@
+version: 2
+
+project_name: release-tools
+
+builds:
+  - id: release-tools
+    skip: true
+
+archives:
+  - id: toolkit
+    meta: true
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}"
+    wrap_in_directory: "{{ .ProjectName }}_{{ .Version }}"
+    files:
+      - src: bin/*
+      - src: docs/*
+      - src: examples/*
+      - src: assets/brand/*
+      - src: scripts/*
+      - src: .release-tools.env
+      - src: .goreleaser.yaml
+      - src: AGENTS.md
+      - src: CHANGELOG.md
+      - src: Containerfile.dev
+      - src: LICENSE
+      - src: NEWS.md
+      - src: README.md
+
+checksum:
+  name_template: checksums.txt
+
+gitea_urls:
+  api: https://codeberg.org/api/v1
+  download: https://codeberg.org
+
+release:
+  gitea:
+    owner: rch
+    name: release-tools
+  mode: replace
