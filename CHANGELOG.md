@@ -7,6 +7,32 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-06-11
+
+### Changed
+
+- updated the release-tools Go baseline to Go 1.26 with toolchain `go1.26.4`
+- updated dev-container verification to install Go `1.26.4` explicitly
+- changed release artifacts from toolkit archives to direct OS/arch
+  `release-tools` binaries for installation into `PATH`
+- changed consumer docs from project-local bootstrap to installed CLI usage
+- added maintainer-only Make targets for local and dev-container verification
+
+### Fixed
+
+- changed `publish-tag` to use a full temporary clone and explicit detached
+  checkout of `refs/tags/<tag>`, preserving tag history for GoReleaser changelog
+  discovery
+- removed the shallow-clone warning path from `publish-tag` by preserving tag
+  history in the temporary clone
+
+### Removed
+
+- removed legacy private shell helper scripts from `bin/`; the Go CLI is now the
+  only release implementation path
+- removed the project-local bootstrap script and `bin/release-tools` wrapper
+  from the consumer model
+
 ## [2.1.0] - 2026-06-11
 
 ### Added

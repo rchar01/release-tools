@@ -16,30 +16,12 @@ builds:
       - arm64
 
 archives:
-  - id: toolkit
+  - id: binaries
     ids:
       - release-tools
     formats:
-      - tar.gz
+      - binary
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-    wrap_in_directory: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-    files:
-      - src: cmd/release-tools/*.go
-      - src: bin/*
-      - src: docs/*
-      - src: examples/*
-      - src: assets/brand/*
-      - src: scripts/*
-      - src: .release-tools.env
-      - src: .goreleaser.yaml
-      - src: .gitignore
-      - src: AGENTS.md
-      - src: CHANGELOG.md
-      - src: Containerfile.dev
-      - src: go.mod
-      - src: LICENSE
-      - src: NEWS.md
-      - src: README.md
 
 checksum:
   name_template: checksums.txt

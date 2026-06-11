@@ -29,7 +29,6 @@ Commands:
 Environment:
   RELEASE_CONFIG_FILE   Config file, defaults to .release-tools.env
   RELEASE_PROJECT       Project name used by release scripts
-  RELEASE_TOOLS_VERSION Pinned release-tools tag for bootstrap scripts
   RELEASE_OWNER         Codeberg/Gitea owner
   RELEASE_REPO          Repository name, defaults to RELEASE_PROJECT
   RELEASE_API_URL       Forge API URL, defaults to Codeberg
@@ -43,18 +42,17 @@ Environment:
 `
 
 var allowedConfigKeys = map[string]bool{
-	"RELEASE_PROJECT":       true,
-	"RELEASE_TOOLS_VERSION": true,
-	"RELEASE_OWNER":         true,
-	"RELEASE_REPO":          true,
-	"RELEASE_API_URL":       true,
-	"RELEASE_DOWNLOAD_URL":  true,
-	"RELEASE_NOTES_SOURCE":  true,
-	"RELEASE_NOTES_MODE":    true,
-	"RELEASE_BODY_MODE":     true,
-	"GORELEASER_CONFIG":     true,
-	"GORELEASER_BIN":        true,
-	"RELEASE_REQUIRE_GO":    true,
+	"RELEASE_PROJECT":      true,
+	"RELEASE_OWNER":        true,
+	"RELEASE_REPO":         true,
+	"RELEASE_API_URL":      true,
+	"RELEASE_DOWNLOAD_URL": true,
+	"RELEASE_NOTES_SOURCE": true,
+	"RELEASE_NOTES_MODE":   true,
+	"RELEASE_BODY_MODE":    true,
+	"GORELEASER_CONFIG":    true,
+	"GORELEASER_BIN":       true,
+	"RELEASE_REQUIRE_GO":   true,
 }
 
 type app struct {
@@ -483,7 +481,7 @@ func (a *app) publishTag(tag string) error {
 		return err
 	}
 	a.log("Creating temporary clone for %s", tag)
-	if err := runAttached(a.stdout, a.stderr, "", "git", "clone", "--quiet", "--branch", tag, "--depth", "1", "file://"+filepath.Join(a.repoRoot, ".git"), cloneDir); err != nil {
+	if err := a.cloneTag(tag, cloneDir); err != nil {
 		return err
 	}
 
@@ -505,6 +503,13 @@ func (a *app) publishTag(tag string) error {
 	}
 	a.log("Published %s", tag)
 	return nil
+}
+
+func (a *app) cloneTag(tag, cloneDir string) error {
+	if err := runAttached(a.stdout, a.stderr, "", "git", "clone", "--quiet", "file://"+filepath.Join(a.repoRoot, ".git"), cloneDir); err != nil {
+		return err
+	}
+	return runAttached(a.stdout, a.stderr, cloneDir, "git", "checkout", "--quiet", "--detach", "refs/tags/"+tag)
 }
 
 func (a *app) runGoreleaserWithToken(token string, args ...string) error {

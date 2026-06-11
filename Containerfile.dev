@@ -1,6 +1,7 @@
 FROM docker.io/library/debian:bookworm-slim
 
 ARG GORELEASER_VERSION=2.16.0
+ARG GO_VERSION=1.26.4
 ARG TARGETARCH
 
 RUN apt-get update \
@@ -9,12 +10,24 @@ RUN apt-get update \
         ca-certificates \
         curl \
         git \
-        golang-go \
         jq \
+        make \
         python3 \
         shellcheck \
         tar \
     && rm -rf /var/lib/apt/lists/*
+
+RUN set -eu; \
+    case "${TARGETARCH:-amd64}" in \
+      amd64|arm64) go_arch="${TARGETARCH:-amd64}" ;; \
+      *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${go_arch}.tar.gz" \
+      | tar -xz -C /usr/local; \
+    ln -s /usr/local/go/bin/go /usr/local/bin/go; \
+    ln -s /usr/local/go/bin/gofmt /usr/local/bin/gofmt
+
+ENV PATH="/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 RUN set -eu; \
     case "${TARGETARCH:-amd64}" in \

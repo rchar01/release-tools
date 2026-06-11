@@ -2,10 +2,10 @@
 
 ## Scope
 - This repo is a shared release toolkit for Go, shell, and documentation/toolkit projects.
-- Consumer repos are expected to bootstrap a pinned checkout such as `.tmp/release-tools/current`.
+- Consumer repos are expected to install `release-tools` into `PATH` and keep only release config locally.
 - Keep repo-specific release config in the consumer repo; keep shared release behavior in the CLI.
-- The CLI is the only public command surface for v2+.
-- Do not reintroduce Make wrappers or Make-based integration docs.
+- The installed CLI is the only public command surface for v2+.
+- The root `Makefile` is maintainer-only convenience for this repo; do not document Make as a consumer release frontend.
 
 ## Agent Workflow Expectations
 - Read relevant code before editing
@@ -21,19 +21,18 @@
 - `docs/README.md`
 - `docs/usage.md`
 - `docs/agent-release-flow.md`
-- `bin/release-tools`
 - `cmd/release-tools/main.go`
-- `bin/common.sh`
-- `bin/run-goreleaser.sh`
 - `.release-tools.env`
 - `.goreleaser.yaml`
+- `Containerfile.dev`
+- `Makefile`
 - `scripts/test`
 - `scripts/test-errors`
 
 ## Repo Shape
 - `cmd/release-tools/`: Go CLI source of truth for public release behavior
-- `bin/`: compatibility wrappers and private shell helpers
-- `.release-tools.env`: self-release config and toolkit version pin for this repo
+- `Makefile`: maintainer-only local targets for this repo
+- `.release-tools.env`: self-release config for this repo
 - `.goreleaser.yaml`: self-release artifact config
 - `examples/`: ready-to-copy consumer integration files
 - `docs/README.md`: short docs index
@@ -45,7 +44,6 @@
 - Supported caller-provided variables are:
   - `RELEASE_CONFIG_FILE`
   - `RELEASE_PROJECT`
-  - `RELEASE_TOOLS_VERSION`
   - `RELEASE_OWNER`
   - `RELEASE_REPO`
   - `RELEASE_API_URL`
@@ -64,30 +62,29 @@
 
 ## Commands
 - CLI:
-  - `bin/release-tools tools-check`
-  - `bin/release-tools doctor`
-  - `bin/release-tools check`
-  - `bin/release-tools snapshot`
-  - `bin/release-tools publish`
-  - `bin/release-tools publish-tag vX.Y.Z`
-  - `bin/release-tools notes vX.Y.Z`
+  - `release-tools tools-check`
+  - `release-tools doctor`
+  - `release-tools check`
+  - `release-tools snapshot`
+  - `release-tools publish`
+  - `release-tools publish-tag vX.Y.Z`
+  - `release-tools notes vX.Y.Z`
 - Verification:
-  - `scripts/test`
-  - `scripts/test-errors`
-  - `scripts/in-container ./scripts/test`
+  - `make verify`
+  - `make container-test`
+  - `scripts/test-errors` for focused error-message checks
 
 ## Verified Behavior To Preserve
-- Keep `bin/release-tools` as the only public command surface.
-- Keep `bin/release-tools` as the compatibility wrapper for the Go CLI.
-- Reuse `bin/ensure-tools.sh` for tool checks instead of duplicating command checks in frontends.
+- Keep the installed `release-tools` binary as the only public command surface.
+- Keep Make targets maintainer-only; consumer repos should call `release-tools` from `PATH`.
 - The CLI fails fast on missing `RELEASE_PROJECT` and `RELEASE_OWNER`; tag publishing also requires `VERSION` or a positional tag.
 - `release-tools check` runs `goreleaser check`.
 - `release-tools snapshot` runs `goreleaser release --snapshot --skip=publish --clean`.
-- `publish-tag` publishes from a clean temporary clone of the exact tag while running the current bootstrapped toolkit against that clone.
+- `publish-tag` publishes from a clean temporary clone of the exact tag.
 - GoReleaser must run from the release repository root.
 - `check` and `snapshot` paths must not require `CODEBERG_TOKEN`.
-- `release-notes.sh` currently supports `RELEASE_NOTES_MODE=news-md` and `none`.
-- `update-release-body.sh` currently supports `RELEASE_BODY_MODE=patch` and `none`.
+- CLI release notes currently support `RELEASE_NOTES_MODE=news-md` and `none`.
+- CLI release body patching currently supports `RELEASE_BODY_MODE=patch` and `none`.
 - project Go preflight is required only when `RELEASE_REQUIRE_GO=1`.
 
 ## Tooling / Env Notes
@@ -95,10 +92,11 @@
 - release body patching uses the Go HTTP client.
 - token resolution reads `CODEBERG_TOKEN` or `~/.config/codeberg/token`.
 - GoReleaser resolution checks `GORELEASER_BIN`, then common install locations.
+- Go baseline is Go 1.26 with toolchain `go1.26.4`.
 - Dev-container verification uses Podman through `scripts/in-container`.
 
 ## Editing Notes
 - When changing documented behavior, update the matching docs in `docs/usage.md` and `docs/agent-release-flow.md`.
 - Prefer executable sources over prose if they conflict.
 - Do not add consumer-repo assumptions that are not enforced by this toolkit.
-- Do not add Make as a release frontend.
+- Do not add Make as a consumer release frontend.

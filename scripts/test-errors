@@ -3,6 +3,18 @@ set -euo pipefail
 
 ROOT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
 TMP_DIR="${RELEASE_TMP_DIR:-${ROOT_DIR}/.tmp}/error-tests"
+RELEASE_TOOLS_BIN="${RELEASE_TOOLS_BIN:-${ROOT_DIR}/.tmp/release-tools-test}"
+
+if [[ ! -x "$RELEASE_TOOLS_BIN" ]]; then
+	mkdir -p "$ROOT_DIR/.tmp/go-build" "$ROOT_DIR/.tmp/go-cache"
+	(
+		cd "$ROOT_DIR"
+		CGO_ENABLED=0 \
+			GOTMPDIR="$ROOT_DIR/.tmp/go-build" \
+			GOCACHE="$ROOT_DIR/.tmp/go-cache" \
+			go build -o "$RELEASE_TOOLS_BIN" ./cmd/release-tools
+	)
+fi
 
 expect_error() {
 	local expected="$1"
@@ -51,21 +63,21 @@ EOF
 touch "$TMP_DIR/missing-news/.goreleaser.yaml"
 
 expect_error '[ERROR] RELEASE_PROJECT is required' \
-	env -u RELEASE_PROJECT -u RELEASE_OWNER -u RELEASE_REPO RELEASE_REPO_ROOT="$TMP_DIR/no-config" "$ROOT_DIR/bin/release-tools" check
+	env -u RELEASE_PROJECT -u RELEASE_OWNER -u RELEASE_REPO RELEASE_REPO_ROOT="$TMP_DIR/no-config" "$RELEASE_TOOLS_BIN" check
 
 expect_error '[ERROR] RELEASE_OWNER is required' \
-	env -u RELEASE_OWNER -u RELEASE_REPO RELEASE_PROJECT=demo RELEASE_REPO_ROOT="$TMP_DIR/no-config" "$ROOT_DIR/bin/release-tools" check
+	env -u RELEASE_OWNER -u RELEASE_REPO RELEASE_PROJECT=demo RELEASE_REPO_ROOT="$TMP_DIR/no-config" "$RELEASE_TOOLS_BIN" check
 
 expect_error '[ERROR] VERSION is required, e.g. publish-tag v1.2.3' \
-	env RELEASE_REPO_ROOT="$ROOT_DIR" "$ROOT_DIR/bin/release-tools" publish-tag
+	env RELEASE_REPO_ROOT="$ROOT_DIR" "$RELEASE_TOOLS_BIN" publish-tag
 
 expect_error '[ERROR] GORELEASER_BIN is not executable: /missing/goreleaser' \
-	env RELEASE_REPO_ROOT="$TMP_DIR/missing-goreleaser" GORELEASER_BIN=/missing/goreleaser "$ROOT_DIR/bin/release-tools" doctor
+	env RELEASE_REPO_ROOT="$TMP_DIR/missing-goreleaser" GORELEASER_BIN=/missing/goreleaser "$RELEASE_TOOLS_BIN" doctor
 
 expect_error '[ERROR] release notes source not found:' \
-	env RELEASE_REPO_ROOT="$TMP_DIR/missing-news" GORELEASER_BIN=/bin/true "$ROOT_DIR/bin/release-tools" doctor
+	env RELEASE_REPO_ROOT="$TMP_DIR/missing-news" GORELEASER_BIN=/bin/true "$RELEASE_TOOLS_BIN" doctor
 
 expect_error '[ERROR] VERSION or TAG is required when the current commit is not an exact tag' \
-	env -u VERSION -u TAG RELEASE_REPO_ROOT="$TMP_DIR/no-tag" "$ROOT_DIR/bin/release-tools" notes
+	env -u VERSION -u TAG RELEASE_REPO_ROOT="$TMP_DIR/no-tag" "$RELEASE_TOOLS_BIN" notes
 
 rm -rf "$TMP_DIR"

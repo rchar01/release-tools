@@ -4,6 +4,18 @@ This file gives a short, release-oriented view of what changed between versions.
 
 ## Unreleased
 
+## v2.2.0 - 2026-06-11
+
+- make `publish-tag` clone full tag history before detaching at the requested
+  tag, so GoReleaser can discover previous tags and avoid shallow-clone warnings
+- update the release-tools Go baseline to Go 1.26 with toolchain `go1.26.4`
+- publish direct OS/arch `release-tools` binaries for installation into `PATH`
+- remove the project-local bootstrap and `bin/` wrapper model from consumer docs
+- remove legacy private shell helper scripts from `bin/`; the Go CLI is now the
+  only release implementation path
+- add maintainer-only Make targets for local and dev-container verification of
+  this repository
+
 ## v2.1.0 - 2026-06-11
 
 - add a compiled Go implementation of the `release-tools` CLI while preserving

@@ -3,7 +3,7 @@
 Short summary of the documentation in this directory:
 
 - `usage.md`: canonical consumer guide and public integration contract for
-  CLI-only runtime-bootstrap users of `release-tools`
+  installed-CLI users of `release-tools`
 - `agent-release-flow.md`: implementation rationale, invariants, and reusable
   release-flow pattern for maintainers and agents
 

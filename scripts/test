@@ -9,19 +9,42 @@ export GOTMPDIR="${GOTMPDIR:-$ROOT_DIR/.tmp/go-build}"
 export GOCACHE="${GOCACHE:-$ROOT_DIR/.tmp/go-cache}"
 
 rm -rf dist
-bash -n bin/* scripts/* examples/bootstrap-release-tools.sh
-shellcheck -x -P bin bin/* scripts/* examples/bootstrap-release-tools.sh
+bash -n scripts/*
+shellcheck scripts/*
 go test ./...
 go build -o .tmp/release-tools-test ./cmd/release-tools
 .tmp/release-tools-test help >/dev/null
 
-bin/release-tools help >/dev/null
 scripts/test-errors
-bin/release-tools doctor >/dev/null
-bin/release-tools check >/dev/null
-bin/release-tools snapshot >/dev/null
-notes_file="$(bin/release-tools notes v2.1.0)"
-grep -q 'compiled Go implementation' "$notes_file"
+.tmp/release-tools-test doctor >/dev/null
+.tmp/release-tools-test check >/dev/null
+.tmp/release-tools-test snapshot >/dev/null
+case "$(uname -s)" in
+Linux) os=linux ;;
+Darwin) os=darwin ;;
+*) printf 'unsupported install test OS: %s\n' "$(uname -s)" >&2; exit 1 ;;
+esac
+case "$(uname -m)" in
+x86_64|amd64) arch=amd64; target_suffix=v1 ;;
+arm64|aarch64) arch=arm64; target_suffix=v8.0 ;;
+*) printf 'unsupported install test architecture: %s\n' "$(uname -m)" >&2; exit 1 ;;
+esac
+release_binary="dist/release-tools_${os}_${arch}_${target_suffix}/release-tools"
+if [[ ! -x "$release_binary" ]]; then
+	printf 'missing snapshot binary for %s_%s\n' "$os" "$arch" >&2
+	exit 1
+fi
+if ! grep -q "release-tools_.*_${os}_${arch}" dist/artifacts.json; then
+	printf 'missing upload artifact name for %s_%s\n' "$os" "$arch" >&2
+	exit 1
+fi
+install_bin="$ROOT_DIR/.tmp/install-bin/release-tools"
+mkdir -p "$(dirname -- "$install_bin")"
+cp "$release_binary" "$install_bin"
+chmod +x "$install_bin"
+"$install_bin" help >/dev/null
+notes_file="$(.tmp/release-tools-test notes v2.2.0)"
+grep -q 'legacy private shell helper scripts' "$notes_file"
 rm -f "$notes_file"
 rm -f .tmp/release-tools-test
 rmdir .tmp 2>/dev/null || true

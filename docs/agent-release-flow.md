@@ -19,9 +19,9 @@ Build a release flow that is:
 The pattern used by this toolkit has seven parts:
 
 1. GoReleaser builds or packages release artifacts and checksums
-2. the Go `release-tools` CLI provides the stable command surface through `bin/release-tools`
+2. the installed Go `release-tools` CLI provides the stable command surface
 3. `.release-tools.env` stores project-specific release configuration
-4. a shared tagged `release-tools` archive owns release behavior
+4. a shared tagged `release-tools` binary owns release behavior
 5. a tagged release can be published from a clean temporary clone
 6. consumers install from release assets, not from source builds
 7. release page text can be generated from a short repo-local notes source such as `NEWS.md`
@@ -30,8 +30,7 @@ The pattern used by this toolkit has seven parts:
 
 - `.release-tools.env`
 - `.goreleaser.yaml`
-- `scripts/bootstrap-release-tools.sh`
-- `.tmp/release-tools/current/bin/release-tools`
+- installed `release-tools` binary in `PATH`
 - CI release workflow if publishing from CI
 - repo-local install script for release assets if consumers need binary installs
 
@@ -50,9 +49,9 @@ Benefits:
 - checksums are generated consistently
 - local snapshot builds resemble real releases
 
-For Go CLIs this usually means OS/arch-specific binary archives. For shell or
-documentation toolkits this can be a meta/source archive with no project Go
-build. `release-tools` itself ships as OS/arch-specific toolkit archives.
+For Go CLIs this usually means OS/arch-specific binaries or archives. For shell
+or documentation toolkits this can be a meta/source archive with no project Go
+build. `release-tools` itself ships as OS/arch-specific binaries.
 
 ### 2. Safe Local Publishing
 
@@ -62,8 +61,9 @@ Publishing from a maintainer worktree is risky when:
 - the worktree is dirty
 - helper scripts have changed after the tagged commit
 
-`release-tools publish-tag` avoids that by cloning the tag from the repo git
-database and running the current bootstrapped toolkit against that clean clone.
+`release-tools publish-tag` avoids that by cloning the repo git database and
+detaching at the requested tag. The clone keeps full tag history so GoReleaser
+can discover the previous release tag.
 
 Benefits:
 
@@ -72,8 +72,8 @@ Benefits:
 
 ### 3. Shared GoReleaser Entrypoint
 
-`release-tools/bin/release-tools` provides the stable command surface. Its
-Go implementation does three useful things when invoking GoReleaser:
+The installed `release-tools` binary provides the stable command surface. Its Go
+implementation does three useful things when invoking GoReleaser:
 
 - resolves the GoReleaser binary from common install locations
 - ensures GoReleaser runs from the repository root
@@ -86,7 +86,7 @@ This removes environment drift between local shells and CI.
 Consumer-facing install scripts can reuse the stable artifact contract to:
 
 - detect OS and CPU architecture
-- download the matching archive
+- download the matching binary or archive
 - download the checksums file
 - verify checksums before install
 - install into a configurable directory
@@ -117,11 +117,11 @@ Reason:
 - committed config documents the release contract
 - CI and maintainers can still override values temporarily
 - clean tag publishing can pass current config into the temporary tag clone
-- the toolkit version pin lives beside the rest of the release configuration
+- release config lives in one small committed file
 
 ### Go Preflight Is Optional
 
-`bin/ensure-tools.sh` requires GoReleaser and only requires Go when
+The Go CLI requires GoReleaser and only requires a project Go toolchain when
 `RELEASE_REQUIRE_GO=1`.
 
 Reason:
@@ -131,7 +131,7 @@ Reason:
   GoReleaser meta archives
 
 GoReleaser itself may still invoke `go` for metadata in some environments. The
-dev container includes Go because this repo now builds the Go CLI.
+dev container includes Go 1.26.4 because this repo now builds the Go CLI.
 
 ### Check Versus Snapshot
 
@@ -156,12 +156,12 @@ Mitigation:
 
 ### Wrong Working Directory
 
-If helper scripts run GoReleaser from the caller directory instead of the repo
+If release tooling runs GoReleaser from the caller directory instead of the repo
 root, it can inspect the wrong git state.
 
 Mitigation:
 
-- force `cd "$REPO_ROOT"` before execing GoReleaser
+- the CLI sets GoReleaser's working directory to the release repository root
 
 ### Tag Without Published Release Assets
 
@@ -172,26 +172,14 @@ Mitigation:
 - verify that the release page contains uploaded assets after publish
 - make installer errors explicit when a tag exists but release assets do not
 
-### Tag Clone Using The Wrong Toolkit Revision
-
-If `publish-tag` uses the wrong pinned toolkit revision, published behavior can
-drift from the caller's intended release flow.
-
-Mitigation:
-
-- resolve the toolkit version from repo config or explicit override
-- bootstrap the exact pinned toolkit checkout before invoking the CLI
-- run the bootstrapped toolkit CLI against the clean tag clone
-
 ## Minimal Adoption Checklist For Another Project
 
 1. define artifact names and checksum output in `.goreleaser.yaml`
 2. add `.release-tools.env`
-3. set `RELEASE_TOOLS_VERSION` in `.release-tools.env`
-4. add a bootstrap script that downloads the pinned toolkit into `.tmp/release-tools/current`
-5. call `bin/release-tools doctor`, `check`, `snapshot`, `publish`, `publish-tag`, and `notes`
-6. add CI for push validation and tag publishing if needed
-7. add a release installer if downstream repos need binary consumption
+3. install `release-tools` into `PATH`
+4. call `release-tools doctor`, `check`, `snapshot`, `publish`, `publish-tag`, and `notes`
+5. add CI for push validation and tag publishing if needed
+6. add a release installer if downstream repos need binary consumption
 
 ## Auth Pattern
 
@@ -211,8 +199,18 @@ For CI:
 This repo uses a dev container as the reproducible test toolbox:
 
 ```bash
-./scripts/in-container ./scripts/test
+make container-test
 ```
+
+For local verification outside the container, use:
+
+```bash
+make verify
+```
+
+The root `Makefile` is maintainer-only convenience for this repository. Consumer
+repositories should install `release-tools` into `PATH` and call that command
+from the project root.
 
 `scripts/test-errors` verifies the most important CLI failure messages,
 including missing release config, missing tag, invalid `GORELEASER_BIN`, and
@@ -222,5 +220,3 @@ missing release notes source.
 
 - add integration coverage around `publish-tag` and release body patching
 - document consumer-side installer patterns with a concrete example repo
-- consider adding an installer helper for projects that want a shared binary download flow
-- consider replacing more private shell helpers once the Go CLI has proven stable

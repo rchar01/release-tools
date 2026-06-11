@@ -1,18 +1,17 @@
 # Release Tools Usage
 
-This document describes the `release-tools` v2 CLI-only runtime-bootstrap model.
+This document describes the `release-tools` v2 installed-CLI model.
 
 The goal is:
 
 - keep shared release behavior in `release-tools`
 - keep project-specific release config in the consuming repo
-- use `bin/release-tools` as the only release entrypoint
-- pin an exact `release-tools` tag in the consuming repo config
-- bootstrap that toolkit automatically at runtime
+- install one `release-tools` binary into `PATH`
+- run `release-tools` directly from the project root
+- avoid copied bootstrap or release helper scripts in consumer repos
 
 Ready-to-copy starting points are included in this repository:
 
-- `examples/bootstrap-release-tools.sh`
 - `examples/.release-tools.env`
 - `examples/forgejo-release.yml`
 
@@ -21,18 +20,46 @@ Ready-to-copy starting points are included in this repository:
 A consuming project should have at least these files:
 
 - `.release-tools.env`
-- `scripts/bootstrap-release-tools.sh`
 - `.goreleaser.yaml`
 - `NEWS.md` if release notes are generated from changelog entries
 - CI release workflow if publishing from CI
 
-Depending on the project, it may also have:
+Depending on the project, it may also have project-owned build or installer
+scripts, but `release-tools` does not require any copied helper script.
 
-- `scripts/build.sh`
-- `scripts/install-<project>.sh`
-- `scripts/install-release-<project>.sh`
+## 1. Install The CLI
 
-## 1. Define Release Tools Config
+Download the matching release binary and place it in a directory on `PATH`.
+
+Linux amd64 example:
+
+```bash
+mkdir -p "$HOME/.local/bin"
+curl -fsSL -o "$HOME/.local/bin/release-tools" \
+  "https://codeberg.org/rch/release-tools/releases/download/v2.2.0/release-tools_2.2.0_linux_amd64"
+chmod +x "$HOME/.local/bin/release-tools"
+```
+
+Published binary names follow this shape:
+
+```text
+release-tools_<version>_<os>_<arch>
+```
+
+Supported release binaries:
+
+- `release-tools_2.2.0_linux_amd64`
+- `release-tools_2.2.0_linux_arm64`
+- `release-tools_2.2.0_darwin_amd64`
+- `release-tools_2.2.0_darwin_arm64`
+
+For system-wide installation, use a privileged install directory instead:
+
+```bash
+sudo install -m 0755 release-tools_2.2.0_linux_amd64 /usr/local/bin/release-tools
+```
+
+## 2. Define Release Tools Config
 
 Add `.release-tools.env` at the repository root.
 
@@ -40,7 +67,6 @@ Example:
 
 ```sh
 RELEASE_PROJECT=platformctl
-RELEASE_TOOLS_VERSION=v2.1.0
 RELEASE_OWNER=rch
 RELEASE_REPO=platformctl
 RELEASE_NOTES_SOURCE=NEWS.md
@@ -49,41 +75,11 @@ RELEASE_BODY_MODE=patch
 GORELEASER_CONFIG=.goreleaser.yaml
 ```
 
-Rules:
-
-- pin only real released tags such as `v2.1.0`
-- do not pin branches or commits
-- allow temporary override through `RELEASE_TOOLS_VERSION=vX.Y.Z`
-
-## 2. Add A Bootstrap Script
-
-Add `scripts/bootstrap-release-tools.sh`.
-
-Responsibilities:
-
-- read `RELEASE_TOOLS_VERSION` from the environment or `.release-tools.env`
-- validate tag format `vX.Y.Z`
-- download the matching `release-tools` archive into `.tmp/release-tools/<version>`
-- fall back to a pinned git checkout when the archive is not available
-- update `.tmp/release-tools/current`
-- print the resolved checkout path
-
-Use `examples/bootstrap-release-tools.sh` in this repository as a ready-to-copy
-starting point.
-
-Notes:
-
-- this script should not implement release logic
-- it should only fetch/select the toolkit checkout
-- keep it project-agnostic except for repo-local paths
-- archive bootstrap requires `curl` and `tar`; fallback source checkout requires `git`
-
 ## 3. Review Supported Variables
 
 Supported `.release-tools.env` keys:
 
 - `RELEASE_PROJECT`
-- `RELEASE_TOOLS_VERSION`
 - `RELEASE_OWNER`
 - `RELEASE_REPO`
 - `RELEASE_API_URL`
@@ -111,7 +107,7 @@ Required for release commands:
 
 Additionally required for `release-tools publish-tag`:
 
-- `VERSION` or a positional tag argument such as `v2.1.0`
+- `VERSION` or a positional tag argument such as `v2.2.0`
 
 ## 4. Add GoReleaser Configuration
 
@@ -145,8 +141,8 @@ Recommended for Go projects:
 
 Shell or documentation toolkits can use GoReleaser meta archives or source
 archives without configuring a project Go build. `release-tools` itself ships as
-a compiled Go CLI, but consuming projects only need Go when their own release
-flow requires it.
+a compiled Go CLI. Consuming projects only need Go when their own release flow
+requires it.
 
 ## 5. Add A Release Notes Source
 
@@ -166,9 +162,6 @@ Example shape:
 - clarify the release-tools value proposition
 ```
 
-The format must match what `release-tools` expects when extracting notes for a
-specific tag.
-
 Generated release notes are release body text only. The toolkit does not add a
 top-level Markdown heading for the tag because the forge already renders the
 release title separately.
@@ -179,9 +172,9 @@ CI should:
 
 - checkout full history
 - install GoReleaser
+- install a pinned `release-tools` binary
 - run project tests
-- bootstrap `release-tools`
-- run `bin/release-tools publish` from the bootstrapped checkout
+- run `release-tools publish` from the project root
 
 Use `examples/forgejo-release.yml` in this repository as a ready-to-copy
 starting point.
@@ -210,8 +203,20 @@ process. The public consumer contract stays `CODEBERG_TOKEN`.
 
 ## 8. Runtime Contract And Command Surface
 
-`release-tools publish-tag` publishes from a clean clone of the exact repo tag,
-while running the current bootstrapped toolkit CLI against that clone.
+Run commands from the consumer repo root:
+
+```bash
+release-tools doctor
+release-tools check
+release-tools snapshot
+release-tools publish
+release-tools publish-tag v2.2.0
+release-tools notes v2.2.0
+```
+
+`release-tools publish-tag` publishes from a clean full-history clone detached at
+the exact repo tag. Keeping tag history available lets GoReleaser discover the
+previous tag for changelog generation.
 
 The CLI fails fast when required variables are missing:
 
@@ -223,27 +228,6 @@ The CLI fails fast when required variables are missing:
   require `RELEASE_PROJECT` and `RELEASE_OWNER`
 - `release-tools publish-tag`
   requires `RELEASE_PROJECT`, `RELEASE_OWNER`, and `VERSION` or a positional tag
-
-After integration, these commands should work from the consumer repo root:
-
-```bash
-toolkit_dir="$(./scripts/bootstrap-release-tools.sh)"
-"$toolkit_dir/bin/release-tools" doctor
-"$toolkit_dir/bin/release-tools" check
-"$toolkit_dir/bin/release-tools" snapshot
-"$toolkit_dir/bin/release-tools" publish
-"$toolkit_dir/bin/release-tools" publish-tag v2.1.0
-"$toolkit_dir/bin/release-tools" notes v2.1.0
-```
-
-For an older project tag that predates `RELEASE_TOOLS_VERSION` in
-`.release-tools.env`:
-
-```bash
-RELEASE_TOOLS_VERSION=v2.1.0 VERSION=v1.0.0 ./scripts/bootstrap-release-tools.sh
-```
-
-Then call `bin/release-tools publish-tag v1.0.0` from the printed toolkit path.
 
 ## 9. What Should Stay In The Consumer Repo
 
@@ -264,7 +248,7 @@ These stay shared in `release-tools`:
 - tool checks
 - config loading
 - token resolution helpers
-- Goreleaser invocation wrapper
+- GoReleaser invocation wrapper
 - check/snapshot/publish logic
 - safe `publish-tag` clean-clone logic
 - release-notes generation logic
@@ -276,12 +260,11 @@ The consuming project should not duplicate these behaviors.
 
 After wiring a project to `release-tools`, verify:
 
-1. `toolkit_dir="$(./scripts/bootstrap-release-tools.sh)"`
-2. `"$toolkit_dir/bin/release-tools" doctor`
-3. `"$toolkit_dir/bin/release-tools" check`
-4. `"$toolkit_dir/bin/release-tools" snapshot`
-5. `"$toolkit_dir/bin/release-tools" notes <current-tag>`
-6. `"$toolkit_dir/bin/release-tools" publish-tag <older-project-tag>`
+1. `release-tools doctor`
+2. `release-tools check`
+3. `release-tools snapshot`
+4. `release-tools notes <current-tag>`
+5. `release-tools publish-tag <older-project-tag>`
 
 For the last command, it is fine to test with an intentionally invalid token if
 you only want to verify the flow gets through clone, notes, and build without
@@ -300,12 +283,8 @@ For a new project, the minimum integration shape is:
 ├── .goreleaser.yaml
 ├── .release-tools.env
 ├── NEWS.md
-├── scripts/
-│   ├── bootstrap-release-tools.sh
-│   ├── build.sh
-│   └── install-release-<project>.sh
 └── <ci-release-workflow>
 ```
 
-That is the configuration `release-tools` assumes and documents for CLI-only
-runtime-bootstrap consumers.
+That is the configuration `release-tools` assumes and documents for installed
+CLI consumers.
