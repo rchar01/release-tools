@@ -3,18 +3,26 @@ set -euo pipefail
 
 ROOT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
 cd "$ROOT_DIR"
+mkdir -p .tmp/go-build .tmp/go-cache
+export CGO_ENABLED="${CGO_ENABLED:-0}"
+export GOTMPDIR="${GOTMPDIR:-$ROOT_DIR/.tmp/go-build}"
+export GOCACHE="${GOCACHE:-$ROOT_DIR/.tmp/go-cache}"
 
 rm -rf dist
-bash -n bin/* scripts/*
-shellcheck -x -P bin bin/* scripts/*
+bash -n bin/* scripts/* examples/bootstrap-release-tools.sh
+shellcheck -x -P bin bin/* scripts/* examples/bootstrap-release-tools.sh
+go test ./...
+go build -o .tmp/release-tools-test ./cmd/release-tools
+.tmp/release-tools-test help >/dev/null
 
 bin/release-tools help >/dev/null
 scripts/test-errors
 bin/release-tools doctor >/dev/null
 bin/release-tools check >/dev/null
 bin/release-tools snapshot >/dev/null
-notes_file="$(bin/release-tools notes v2.0.0)"
-grep -q 'CLI-only release workflow' "$notes_file"
+notes_file="$(bin/release-tools notes v2.1.0)"
+grep -q 'compiled Go implementation' "$notes_file"
 rm -f "$notes_file"
+rm -f .tmp/release-tools-test
 rmdir .tmp 2>/dev/null || true
 rm -rf dist

@@ -5,7 +5,7 @@
 </div>
 
 Shared release automation for Go and shell-toolkit repositories using
-Goreleaser, Codeberg, and a small CLI.
+Goreleaser, Codeberg, and a small Go CLI.
 
 ## Purpose
 
@@ -49,7 +49,7 @@ Repos should consume this toolkit from a pinned runtime checkout such as
 Current release to pin in consuming repositories:
 
 ```text
-v2.0.0
+v2.1.0
 ```
 
 The CLI validates required release configuration before running release commands.
@@ -66,11 +66,14 @@ In a consuming repository:
 3. Add or update the project's `.goreleaser.yaml` and `NEWS.md`.
 4. Bootstrap the pinned toolkit and run the CLI from that checkout.
 
+Archive bootstrap needs `curl` and `tar`; the fallback source checkout needs
+`git` and, if no compiled archive is available, Go.
+
 Minimal `.release-tools.env` shape:
 
 ```sh
 RELEASE_PROJECT=mycli
-RELEASE_TOOLS_VERSION=v2.0.0
+RELEASE_TOOLS_VERSION=v2.1.0
 RELEASE_OWNER=myowner
 RELEASE_REPO=mycli
 RELEASE_NOTES_SOURCE=NEWS.md

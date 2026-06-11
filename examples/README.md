@@ -11,6 +11,6 @@ Suggested usage:
 
 Files:
 
-- `bootstrap-release-tools.sh`: fetches the pinned toolkit checkout
+- `bootstrap-release-tools.sh`: fetches the pinned toolkit archive or checkout
 - `.release-tools.env`: example release-tools CLI config and toolkit version pin
 - `forgejo-release.yml`: example release workflow

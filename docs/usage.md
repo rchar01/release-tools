@@ -40,7 +40,7 @@ Example:
 
 ```sh
 RELEASE_PROJECT=platformctl
-RELEASE_TOOLS_VERSION=v2.0.0
+RELEASE_TOOLS_VERSION=v2.1.0
 RELEASE_OWNER=rch
 RELEASE_REPO=platformctl
 RELEASE_NOTES_SOURCE=NEWS.md
@@ -51,7 +51,7 @@ GORELEASER_CONFIG=.goreleaser.yaml
 
 Rules:
 
-- pin only real released tags such as `v2.0.0`
+- pin only real released tags such as `v2.1.0`
 - do not pin branches or commits
 - allow temporary override through `RELEASE_TOOLS_VERSION=vX.Y.Z`
 
@@ -63,7 +63,8 @@ Responsibilities:
 
 - read `RELEASE_TOOLS_VERSION` from the environment or `.release-tools.env`
 - validate tag format `vX.Y.Z`
-- clone `release-tools` into `.tmp/release-tools/<version>`
+- download the matching `release-tools` archive into `.tmp/release-tools/<version>`
+- fall back to a pinned git checkout when the archive is not available
 - update `.tmp/release-tools/current`
 - print the resolved checkout path
 
@@ -75,6 +76,7 @@ Notes:
 - this script should not implement release logic
 - it should only fetch/select the toolkit checkout
 - keep it project-agnostic except for repo-local paths
+- archive bootstrap requires `curl` and `tar`; fallback source checkout requires `git`
 
 ## 3. Review Supported Variables
 
@@ -109,7 +111,7 @@ Required for release commands:
 
 Additionally required for `release-tools publish-tag`:
 
-- `VERSION` or a positional tag argument such as `v2.0.0`
+- `VERSION` or a positional tag argument such as `v2.1.0`
 
 ## 4. Add GoReleaser Configuration
 
@@ -142,9 +144,9 @@ Recommended for Go projects:
 - keep binary names stable across builds and installs
 
 Shell or documentation toolkits can use GoReleaser meta archives or source
-archives without configuring a Go build. GoReleaser may still invoke `go` for
-metadata in some environments, so install Go in CI unless you have verified your
-GoReleaser version does not need it.
+archives without configuring a project Go build. `release-tools` itself ships as
+a compiled Go CLI, but consuming projects only need Go when their own release
+flow requires it.
 
 ## 5. Add A Release Notes Source
 
@@ -209,8 +211,7 @@ process. The public consumer contract stays `CODEBERG_TOKEN`.
 ## 8. Runtime Contract And Command Surface
 
 `release-tools publish-tag` publishes from a clean clone of the exact repo tag,
-while running the current bootstrapped toolkit scripts against that clone through
-`RELEASE_REPO_ROOT`.
+while running the current bootstrapped toolkit CLI against that clone.
 
 The CLI fails fast when required variables are missing:
 
@@ -231,15 +232,15 @@ toolkit_dir="$(./scripts/bootstrap-release-tools.sh)"
 "$toolkit_dir/bin/release-tools" check
 "$toolkit_dir/bin/release-tools" snapshot
 "$toolkit_dir/bin/release-tools" publish
-"$toolkit_dir/bin/release-tools" publish-tag v2.0.0
-"$toolkit_dir/bin/release-tools" notes v2.0.0
+"$toolkit_dir/bin/release-tools" publish-tag v2.1.0
+"$toolkit_dir/bin/release-tools" notes v2.1.0
 ```
 
 For an older project tag that predates `RELEASE_TOOLS_VERSION` in
 `.release-tools.env`:
 
 ```bash
-RELEASE_TOOLS_VERSION=v2.0.0 VERSION=v1.0.0 ./scripts/bootstrap-release-tools.sh
+RELEASE_TOOLS_VERSION=v2.1.0 VERSION=v1.0.0 ./scripts/bootstrap-release-tools.sh
 ```
 
 Then call `bin/release-tools publish-tag v1.0.0` from the printed toolkit path.

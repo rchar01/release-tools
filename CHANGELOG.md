@@ -7,6 +7,22 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-06-11
+
+### Added
+
+- compiled Go implementation of the `release-tools` CLI while preserving the
+  v2 command and `.release-tools.env` contract
+- Go unit tests for config parsing, version argument validation, and NEWS.md
+  release note extraction
+
+### Changed
+
+- changed self-release artifacts from a meta archive to OS/arch-specific
+  toolkit archives containing the compiled `release-tools` binary
+- updated the bootstrap example to download release archives before falling back
+  to a pinned git checkout
+
 ## [2.0.0] - 2026-06-11
 
 ### Added

@@ -4,6 +4,17 @@ This file gives a short, release-oriented view of what changed between versions.
 
 ## Unreleased
 
+## v2.1.0 - 2026-06-11
+
+- add a compiled Go implementation of the `release-tools` CLI while preserving
+  the v2 command and `.release-tools.env` contract
+- publish OS/arch-specific toolkit archives that include the compiled CLI,
+  docs, examples, scripts, and release metadata
+- update the bootstrap script to download release archives before falling back to
+  a pinned git checkout
+- add Go unit tests for config parsing, version handling, and NEWS.md release
+  note extraction
+
 ## v2.0.0 - 2026-06-11
 
 - switch to a CLI-only release workflow with `bin/release-tools` as the sole

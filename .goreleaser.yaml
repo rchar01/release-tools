@@ -4,16 +4,27 @@ project_name: release-tools
 
 builds:
   - id: release-tools
-    skip: true
+    main: ./cmd/release-tools
+    binary: release-tools
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
 
 archives:
   - id: toolkit
-    meta: true
+    ids:
+      - release-tools
     formats:
       - tar.gz
-    name_template: "{{ .ProjectName }}_{{ .Version }}"
-    wrap_in_directory: "{{ .ProjectName }}_{{ .Version }}"
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    wrap_in_directory: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
+      - src: cmd/release-tools/*.go
       - src: bin/*
       - src: docs/*
       - src: examples/*
@@ -21,9 +32,11 @@ archives:
       - src: scripts/*
       - src: .release-tools.env
       - src: .goreleaser.yaml
+      - src: .gitignore
       - src: AGENTS.md
       - src: CHANGELOG.md
       - src: Containerfile.dev
+      - src: go.mod
       - src: LICENSE
       - src: NEWS.md
       - src: README.md

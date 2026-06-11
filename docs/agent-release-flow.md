@@ -19,9 +19,9 @@ Build a release flow that is:
 The pattern used by this toolkit has seven parts:
 
 1. GoReleaser builds or packages release artifacts and checksums
-2. `bin/release-tools` provides the stable command surface
+2. the Go `release-tools` CLI provides the stable command surface through `bin/release-tools`
 3. `.release-tools.env` stores project-specific release configuration
-4. a shared tagged `release-tools` checkout owns release behavior
+4. a shared tagged `release-tools` archive owns release behavior
 5. a tagged release can be published from a clean temporary clone
 6. consumers install from release assets, not from source builds
 7. release page text can be generated from a short repo-local notes source such as `NEWS.md`
@@ -51,7 +51,8 @@ Benefits:
 - local snapshot builds resemble real releases
 
 For Go CLIs this usually means OS/arch-specific binary archives. For shell or
-documentation toolkits this can be a meta/source archive with no Go build.
+documentation toolkits this can be a meta/source archive with no project Go
+build. `release-tools` itself ships as OS/arch-specific toolkit archives.
 
 ### 2. Safe Local Publishing
 
@@ -61,8 +62,8 @@ Publishing from a maintainer worktree is risky when:
 - the worktree is dirty
 - helper scripts have changed after the tagged commit
 
-`release-tag.sh` avoids that by cloning the tag from the repo git database and
-running the current bootstrapped toolkit against that clean clone.
+`release-tools publish-tag` avoids that by cloning the tag from the repo git
+database and running the current bootstrapped toolkit against that clean clone.
 
 Benefits:
 
@@ -71,8 +72,8 @@ Benefits:
 
 ### 3. Shared GoReleaser Entrypoint
 
-`release-tools/bin/release-tools` provides the stable command surface, and
-`release-tools/bin/run-goreleaser.sh` does three useful things:
+`release-tools/bin/release-tools` provides the stable command surface. Its
+Go implementation does three useful things when invoking GoReleaser:
 
 - resolves the GoReleaser binary from common install locations
 - ensures GoReleaser runs from the repository root
@@ -126,11 +127,11 @@ Reason:
 Reason:
 
 - Go CLI projects still can enforce Go availability
-- shell/docs/toolkit repos can avoid a release-tools Go preflight while using
+- shell/docs/toolkit repos can avoid a project Go preflight while using
   GoReleaser meta archives
 
-GoReleaser itself may still invoke `go` for metadata in some environments, so
-the dev container includes Go.
+GoReleaser itself may still invoke `go` for metadata in some environments. The
+dev container includes Go because this repo now builds the Go CLI.
 
 ### Check Versus Snapshot
 
@@ -180,14 +181,14 @@ Mitigation:
 
 - resolve the toolkit version from repo config or explicit override
 - bootstrap the exact pinned toolkit checkout before invoking the CLI
-- run the bootstrapped toolkit scripts against `RELEASE_REPO_ROOT=<clean tag clone>`
+- run the bootstrapped toolkit CLI against the clean tag clone
 
 ## Minimal Adoption Checklist For Another Project
 
 1. define artifact names and checksum output in `.goreleaser.yaml`
 2. add `.release-tools.env`
 3. set `RELEASE_TOOLS_VERSION` in `.release-tools.env`
-4. add a bootstrap script that checks out the pinned toolkit into `.tmp/release-tools/current`
+4. add a bootstrap script that downloads the pinned toolkit into `.tmp/release-tools/current`
 5. call `bin/release-tools doctor`, `check`, `snapshot`, `publish`, `publish-tag`, and `notes`
 6. add CI for push validation and tag publishing if needed
 7. add a release installer if downstream repos need binary consumption
@@ -222,5 +223,4 @@ missing release notes source.
 - add integration coverage around `publish-tag` and release body patching
 - document consumer-side installer patterns with a concrete example repo
 - consider adding an installer helper for projects that want a shared binary download flow
-- consider moving more implementation details behind the CLI once the shell
-  command surface is proven stable
+- consider replacing more private shell helpers once the Go CLI has proven stable
