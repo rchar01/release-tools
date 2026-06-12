@@ -4,8 +4,8 @@
   <img src="assets/brand/release-tools-forge-avatar-transparent-512.png" width="256" alt="release-tools logo">
 </div>
 
-Shared release automation for Go and shell-toolkit repositories using
-Goreleaser, Codeberg, and a small installed Go CLI.
+A small installed CLI for shared GoReleaser-based release automation on
+Gitea/Forgejo, GitHub, and GitLab.
 
 ## Purpose
 
@@ -26,9 +26,9 @@ This toolkit adds the workflow around it:
   `notes`, and `doctor`
 - repo-local `.release-tools.env` configuration with environment overrides
 - fast validation for required release variables such as `RELEASE_PROJECT`,
-  `RELEASE_OWNER`, and `VERSION`
-- a public `CODEBERG_TOKEN` contract that is mapped internally to Goreleaser's
-  `GITEA_TOKEN`
+  `RELEASE_OWNER`, `RELEASE_FORGE`, and `VERSION`
+- a public `RELEASE_TOKEN` contract that is mapped internally to the forge token
+  environment variable GoReleaser expects
 - safer `publish-tag` publishing from a clean temporary clone of the exact tag
 - consistent Goreleaser execution from the repository root
 - release notes generation from `NEWS.md`, passed into Goreleaser during
@@ -57,16 +57,16 @@ Install the CLI:
 ```bash
 mkdir -p "$HOME/.local/bin"
 curl -fsSL -o "$HOME/.local/bin/release-tools" \
-  "https://codeberg.org/rch/release-tools/releases/download/v2.2.0/release-tools_2.2.0_linux_amd64"
+  "https://codeberg.org/rch/release-tools/releases/download/v3.0.0/release-tools_3.0.0_linux_amd64"
 chmod +x "$HOME/.local/bin/release-tools"
 ```
 
 Use the matching binary for your OS and architecture:
 
-- `release-tools_2.2.0_linux_amd64`
-- `release-tools_2.2.0_linux_arm64`
-- `release-tools_2.2.0_darwin_amd64`
-- `release-tools_2.2.0_darwin_arm64`
+- `release-tools_3.0.0_linux_amd64`
+- `release-tools_3.0.0_linux_arm64`
+- `release-tools_3.0.0_darwin_amd64`
+- `release-tools_3.0.0_darwin_arm64`
 
 In a project repository:
 
@@ -78,6 +78,7 @@ Minimal `.release-tools.env` shape:
 
 ```sh
 RELEASE_PROJECT=mycli
+RELEASE_FORGE=gitea
 RELEASE_OWNER=myowner
 RELEASE_REPO=mycli
 RELEASE_NOTES_SOURCE=NEWS.md
@@ -85,6 +86,10 @@ RELEASE_NOTES_MODE=news-md
 RELEASE_BODY_MODE=patch
 GORELEASER_CONFIG=.goreleaser.yaml
 ```
+
+Supported `RELEASE_FORGE` values are `gitea`, `forgejo`, `github`, and
+`gitlab`. `gitea` and `forgejo` use Codeberg-compatible defaults unless the
+project sets `RELEASE_API_URL` and `RELEASE_DOWNLOAD_URL`.
 
 Common local verification flow:
 
@@ -95,10 +100,11 @@ release-tools snapshot
 release-tools notes v1.2.3
 ```
 
-Publishing requires `CODEBERG_TOKEN` and an existing tag:
+Publishing requires `RELEASE_TOKEN` or the native token variable for the selected
+forge, plus an existing tag:
 
 ```bash
-export CODEBERG_TOKEN="$(cat ~/.config/codeberg/token)"
+export RELEASE_TOKEN="$(cat ~/.config/forge/token)"
 release-tools publish-tag v1.2.3
 ```
 

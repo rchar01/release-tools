@@ -44,6 +44,7 @@
 - Supported caller-provided variables are:
   - `RELEASE_CONFIG_FILE`
   - `RELEASE_PROJECT`
+  - `RELEASE_FORGE`
   - `RELEASE_OWNER`
   - `RELEASE_REPO`
   - `RELEASE_API_URL`
@@ -54,11 +55,13 @@
   - `GORELEASER_CONFIG`
   - `GORELEASER_BIN`
   - `RELEASE_REQUIRE_GO`
+  - `RELEASE_TOKEN`
   - `VERSION`
 - `.release-tools.env` is the default repo-local config file.
 - Environment variables override `.release-tools.env` values.
-- `CODEBERG_TOKEN` is the only public token variable.
-- The CLI maps `CODEBERG_TOKEN` to `GITEA_TOKEN` internally for GoReleaser.
+- `RELEASE_TOKEN` is the public forge-token variable.
+- The CLI maps `RELEASE_TOKEN` to `GITEA_TOKEN`, `GITHUB_TOKEN`, or
+  `GITLAB_TOKEN` internally for GoReleaser based on `RELEASE_FORGE`.
 
 ## Commands
 - CLI:
@@ -82,7 +85,7 @@
 - `release-tools snapshot` runs `goreleaser release --snapshot --skip=publish --clean`.
 - `publish-tag` publishes from a clean temporary clone of the exact tag.
 - GoReleaser must run from the release repository root.
-- `check` and `snapshot` paths must not require `CODEBERG_TOKEN`.
+- `check` and `snapshot` paths must not require `RELEASE_TOKEN`.
 - CLI release notes currently support `RELEASE_NOTES_MODE=news-md` and `none`.
 - CLI release body patching currently supports `RELEASE_BODY_MODE=patch` and `none`.
 - project Go preflight is required only when `RELEASE_REQUIRE_GO=1`.
@@ -90,7 +93,8 @@
 ## Tooling / Env Notes
 - the CLI requires a resolvable `goreleaser`.
 - release body patching uses the Go HTTP client.
-- token resolution reads `CODEBERG_TOKEN` or `~/.config/codeberg/token`.
+- token resolution reads `RELEASE_TOKEN` or the native GoReleaser token variable
+  for `RELEASE_FORGE`.
 - GoReleaser resolution checks `GORELEASER_BIN`, then common install locations.
 - Go baseline is Go 1.26 with toolchain `go1.26.4`.
 - Dev-container verification uses Podman through `scripts/in-container`.

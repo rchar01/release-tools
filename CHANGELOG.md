@@ -7,6 +7,27 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-06-12
+
+### Changed
+
+- changed the public forge token contract from `CODEBERG_TOKEN` to
+  `RELEASE_TOKEN`
+- added `RELEASE_FORGE` with support for `gitea`, `forgejo`, `github`, and
+  `gitlab`
+- mapped `RELEASE_TOKEN` to `GITEA_TOKEN`, `GITHUB_TOKEN`, or `GITLAB_TOKEN`
+  for GoReleaser based on `RELEASE_FORGE`
+
+### Added
+
+- release body patching for GitHub and GitLab releases
+- forge-specific default API and download URLs
+
+### Removed
+
+- removed the Codeberg-specific token file fallback from
+  `~/.config/codeberg/token`
+
 ## [2.2.0] - 2026-06-11
 
 ### Changed

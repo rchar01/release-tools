@@ -9,8 +9,8 @@ jobs:
   release:
     runs-on: ubuntu-latest
     env:
-      CODEBERG_TOKEN: ${{ secrets.CODEBERG_TOKEN }}
-      RELEASE_TOOLS_INSTALL_VERSION: v2.2.0
+      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      RELEASE_TOOLS_INSTALL_VERSION: v3.0.0
     steps:
       - name: Checkout
         uses: actions/checkout@v4

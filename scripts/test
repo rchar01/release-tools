@@ -43,8 +43,8 @@ mkdir -p "$(dirname -- "$install_bin")"
 cp "$release_binary" "$install_bin"
 chmod +x "$install_bin"
 "$install_bin" help >/dev/null
-notes_file="$(.tmp/release-tools-test notes v2.2.0)"
-grep -q 'legacy private shell helper scripts' "$notes_file"
+notes_file="$(.tmp/release-tools-test notes v3.0.0)"
+grep -q 'RELEASE_FORGE' "$notes_file"
 rm -f "$notes_file"
 rm -f .tmp/release-tools-test
 rmdir .tmp 2>/dev/null || true

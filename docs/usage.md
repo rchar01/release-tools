@@ -1,6 +1,6 @@
 # Release Tools Usage
 
-This document describes the `release-tools` v2 installed-CLI model.
+This document describes the `release-tools` v3 installed-CLI model.
 
 The goal is:
 
@@ -36,7 +36,7 @@ Linux amd64 example:
 ```bash
 mkdir -p "$HOME/.local/bin"
 curl -fsSL -o "$HOME/.local/bin/release-tools" \
-  "https://codeberg.org/rch/release-tools/releases/download/v2.2.0/release-tools_2.2.0_linux_amd64"
+  "https://codeberg.org/rch/release-tools/releases/download/v3.0.0/release-tools_3.0.0_linux_amd64"
 chmod +x "$HOME/.local/bin/release-tools"
 ```
 
@@ -48,15 +48,15 @@ release-tools_<version>_<os>_<arch>
 
 Supported release binaries:
 
-- `release-tools_2.2.0_linux_amd64`
-- `release-tools_2.2.0_linux_arm64`
-- `release-tools_2.2.0_darwin_amd64`
-- `release-tools_2.2.0_darwin_arm64`
+- `release-tools_3.0.0_linux_amd64`
+- `release-tools_3.0.0_linux_arm64`
+- `release-tools_3.0.0_darwin_amd64`
+- `release-tools_3.0.0_darwin_arm64`
 
 For system-wide installation, use a privileged install directory instead:
 
 ```bash
-sudo install -m 0755 release-tools_2.2.0_linux_amd64 /usr/local/bin/release-tools
+sudo install -m 0755 release-tools_3.0.0_linux_amd64 /usr/local/bin/release-tools
 ```
 
 ## 2. Define Release Tools Config
@@ -67,6 +67,7 @@ Example:
 
 ```sh
 RELEASE_PROJECT=platformctl
+RELEASE_FORGE=gitea
 RELEASE_OWNER=rch
 RELEASE_REPO=platformctl
 RELEASE_NOTES_SOURCE=NEWS.md
@@ -75,11 +76,22 @@ RELEASE_BODY_MODE=patch
 GORELEASER_CONFIG=.goreleaser.yaml
 ```
 
+Supported `RELEASE_FORGE` values:
+
+- `gitea`
+- `forgejo`
+- `github`
+- `gitlab`
+
+`gitea` and `forgejo` use Codeberg-compatible defaults unless
+`RELEASE_API_URL` and `RELEASE_DOWNLOAD_URL` are set explicitly.
+
 ## 3. Review Supported Variables
 
 Supported `.release-tools.env` keys:
 
 - `RELEASE_PROJECT`
+- `RELEASE_FORGE`
 - `RELEASE_OWNER`
 - `RELEASE_REPO`
 - `RELEASE_API_URL`
@@ -94,7 +106,9 @@ Supported `.release-tools.env` keys:
 Supported environment-only variables:
 
 - `RELEASE_CONFIG_FILE`
-- `CODEBERG_TOKEN`
+- `RELEASE_TOKEN`
+- native GoReleaser token variables: `GITEA_TOKEN`, `GITHUB_TOKEN`, or
+  `GITLAB_TOKEN`
 - `VERSION`
 
 Environment variables override `.release-tools.env` values. Set
@@ -107,7 +121,7 @@ Required for release commands:
 
 Additionally required for `release-tools publish-tag`:
 
-- `VERSION` or a positional tag argument such as `v2.2.0`
+- `VERSION` or a positional tag argument such as `v3.0.0`
 
 ## 4. Add GoReleaser Configuration
 
@@ -183,23 +197,26 @@ starting point.
 
 The public token name is:
 
-- `CODEBERG_TOKEN`
+- `RELEASE_TOKEN`
 
 Local maintainer flow should support:
 
-- `CODEBERG_TOKEN` from the environment
-- `~/.config/codeberg/token`
+- `RELEASE_TOKEN` from the environment
+- or the native GoReleaser token variable for `RELEASE_FORGE`
 
 Recommended local setup:
 
 ```bash
-export CODEBERG_TOKEN="$(cat ~/.config/codeberg/token)"
+export RELEASE_TOKEN="$(cat ~/.config/forge/token)"
 ```
 
-CI should provide `CODEBERG_TOKEN` through repository secrets.
+CI should provide `RELEASE_TOKEN` through repository secrets.
 
-`release-tools` maps that internally to `GITEA_TOKEN` only for the GoReleaser
-process. The public consumer contract stays `CODEBERG_TOKEN`.
+`release-tools` maps that internally to the token variable GoReleaser expects:
+
+- `RELEASE_FORGE=gitea` or `forgejo`: `GITEA_TOKEN`
+- `RELEASE_FORGE=github`: `GITHUB_TOKEN`
+- `RELEASE_FORGE=gitlab`: `GITLAB_TOKEN`
 
 ## 8. Runtime Contract And Command Surface
 
@@ -210,8 +227,8 @@ release-tools doctor
 release-tools check
 release-tools snapshot
 release-tools publish
-release-tools publish-tag v2.2.0
-release-tools notes v2.2.0
+release-tools publish-tag v3.0.0
+release-tools notes v3.0.0
 ```
 
 `release-tools publish-tag` publishes from a clean full-history clone detached at

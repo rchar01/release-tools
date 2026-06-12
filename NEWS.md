@@ -4,6 +4,16 @@ This file gives a short, release-oriented view of what changed between versions.
 
 ## Unreleased
 
+## v3.0.0 - 2026-06-12
+
+- breaking: replace the Codeberg-specific `CODEBERG_TOKEN` contract with
+  `RELEASE_FORGE` and `RELEASE_TOKEN`
+- map `RELEASE_TOKEN` to `GITEA_TOKEN`, `GITHUB_TOKEN`, or `GITLAB_TOKEN` for
+  GoReleaser based on the selected forge
+- add release body patching for GitHub and GitLab in addition to Gitea/Forgejo
+- keep Codeberg-compatible defaults for `RELEASE_FORGE=gitea`, while allowing
+  explicit `RELEASE_API_URL` and `RELEASE_DOWNLOAD_URL` overrides
+
 ## v2.2.0 - 2026-06-11
 
 - make `publish-tag` clone full tag history before detaching at the requested

@@ -37,7 +37,7 @@ expect_error() {
 }
 
 rm -rf "$TMP_DIR"
-mkdir -p "$TMP_DIR/no-config" "$TMP_DIR/no-tag" "$TMP_DIR/missing-goreleaser" "$TMP_DIR/missing-news"
+mkdir -p "$TMP_DIR/no-config" "$TMP_DIR/no-tag" "$TMP_DIR/missing-goreleaser" "$TMP_DIR/missing-news" "$TMP_DIR/invalid-forge"
 
 cat >"$TMP_DIR/no-tag/.release-tools.env" <<'EOF'
 RELEASE_PROJECT=demo
@@ -62,6 +62,12 @@ RELEASE_NOTES_SOURCE=NEWS.md
 EOF
 touch "$TMP_DIR/missing-news/.goreleaser.yaml"
 
+cat >"$TMP_DIR/invalid-forge/.release-tools.env" <<'EOF'
+RELEASE_PROJECT=demo
+RELEASE_FORGE=svn
+RELEASE_OWNER=owner
+EOF
+
 expect_error '[ERROR] RELEASE_PROJECT is required' \
 	env -u RELEASE_PROJECT -u RELEASE_OWNER -u RELEASE_REPO RELEASE_REPO_ROOT="$TMP_DIR/no-config" "$RELEASE_TOOLS_BIN" check
 
@@ -76,6 +82,9 @@ expect_error '[ERROR] GORELEASER_BIN is not executable: /missing/goreleaser' \
 
 expect_error '[ERROR] release notes source not found:' \
 	env RELEASE_REPO_ROOT="$TMP_DIR/missing-news" GORELEASER_BIN=/bin/true "$RELEASE_TOOLS_BIN" doctor
+
+expect_error '[ERROR] unsupported RELEASE_FORGE: svn' \
+	env RELEASE_REPO_ROOT="$TMP_DIR/invalid-forge" GORELEASER_BIN=/bin/true "$RELEASE_TOOLS_BIN" doctor
 
 expect_error '[ERROR] VERSION or TAG is required when the current commit is not an exact tag' \
 	env -u VERSION -u TAG RELEASE_REPO_ROOT="$TMP_DIR/no-tag" "$RELEASE_TOOLS_BIN" notes

@@ -10,7 +10,7 @@ Build a release flow that is:
 - reproducible
 - safe to run locally
 - safe to run in CI
-- compatible with Codeberg and Forgejo/Gitea releases
+- compatible with Gitea/Forgejo, GitHub, and GitLab releases
 - easy for consumer repositories to install from published artifacts
 - driven by one CLI entrypoint
 
@@ -77,7 +77,8 @@ implementation does three useful things when invoking GoReleaser:
 
 - resolves the GoReleaser binary from common install locations
 - ensures GoReleaser runs from the repository root
-- maps `CODEBERG_TOKEN` to `GITEA_TOKEN` only for the GoReleaser process
+- maps `RELEASE_TOKEN` to the forge-native token environment only for the
+  GoReleaser process
 
 This removes environment drift between local shells and CI.
 
@@ -186,13 +187,14 @@ Mitigation:
 For local maintainer use:
 
 ```bash
-export CODEBERG_TOKEN="$(cat ~/.config/codeberg/token)"
+export RELEASE_TOKEN="$(cat ~/.config/forge/token)"
 ```
 
 For CI:
 
-- store `CODEBERG_TOKEN` as a repository secret
-- let the toolkit map it to `GITEA_TOKEN` only for the GoReleaser process
+- store `RELEASE_TOKEN` as a repository secret
+- let the toolkit map it to `GITEA_TOKEN`, `GITHUB_TOKEN`, or `GITLAB_TOKEN`
+  only for the GoReleaser process
 
 ## Verification Pattern
 

@@ -2,6 +2,9 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -41,17 +44,17 @@ func TestLoadConfigFileRejectsUnsupportedKey(t *testing.T) {
 func TestExtractNewsSection(t *testing.T) {
 	content := `# News
 
-## v2.2.0 - 2026-06-11
+## v3.0.0 - 2026-06-12
 
 - add Go CLI
 - keep command compatibility
 
-## v2.1.0 - 2026-06-11
+## v2.2.0 - 2026-06-11
 
 - previous
 `
 
-	got := extractNewsSection(content, "v2.2.0")
+	got := extractNewsSection(content, "v3.0.0")
 	want := "- add Go CLI\n- keep command compatibility"
 	if got != want {
 		t.Fatalf("section = %q, want %q", got, want)
@@ -63,6 +66,104 @@ func TestOptionalVersionArgumentRejectsTooManyArgs(t *testing.T) {
 	_, err := a.optionalVersionArg("notes", []string{"v1.0.0", "v1.0.1"})
 	if err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestResolveTokenMapsForgeNativeEnvironment(t *testing.T) {
+	a := &app{env: map[string]string{"RELEASE_FORGE": "github", "GITHUB_TOKEN": "github-token"}}
+	token, err := a.resolveToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token != "github-token" {
+		t.Fatalf("token = %q, want github-token", token)
+	}
+	if got := a.goreleaserTokenEnv(); got != "GITHUB_TOKEN" {
+		t.Fatalf("token env = %q, want GITHUB_TOKEN", got)
+	}
+
+	a = &app{env: map[string]string{"RELEASE_FORGE": "gitlab", "RELEASE_TOKEN": "release-token", "GITLAB_TOKEN": "gitlab-token"}}
+	token, err = a.resolveToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token != "release-token" {
+		t.Fatalf("token = %q, want release-token", token)
+	}
+	if got := a.goreleaserTokenEnv(); got != "GITLAB_TOKEN" {
+		t.Fatalf("token env = %q, want GITLAB_TOKEN", got)
+	}
+}
+
+func TestUpdateGitHubReleaseBody(t *testing.T) {
+	notesFile := filepath.Join(t.TempDir(), "notes.md")
+	writeFile(t, notesFile, "hello github\n")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/owner/repo/releases/tags/v1.0.0":
+			if got := r.Header.Get("Authorization"); got != "Bearer token" {
+				t.Fatalf("authorization = %q", got)
+			}
+			_, _ = w.Write([]byte(`{"id":42}`))
+		case r.Method == http.MethodPatch && r.URL.Path == "/repos/owner/repo/releases/42":
+			var payload map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatal(err)
+			}
+			if got := payload["body"]; got != "hello github\n" {
+				t.Fatalf("body = %q", got)
+			}
+			_, _ = w.Write([]byte(`{}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	a := &app{env: map[string]string{
+		"RELEASE_FORGE":     "github",
+		"RELEASE_API_URL":   server.URL,
+		"RELEASE_OWNER":     "owner",
+		"RELEASE_REPO":      "repo",
+		"RELEASE_BODY_MODE": "patch",
+	}, stdout: ioDiscard(), stderr: ioDiscard()}
+	if err := a.updateReleaseBody("v1.0.0", notesFile, "token"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUpdateGitLabReleaseBody(t *testing.T) {
+	notesFile := filepath.Join(t.TempDir(), "notes.md")
+	writeFile(t, notesFile, "hello gitlab\n")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut || r.URL.EscapedPath() != "/projects/owner%2Frepo/releases/v1.0.0" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.EscapedPath())
+		}
+		if got := r.Header.Get("PRIVATE-TOKEN"); got != "token" {
+			t.Fatalf("PRIVATE-TOKEN = %q", got)
+		}
+		var payload map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		if got := payload["description"]; got != "hello gitlab\n" {
+			t.Fatalf("description = %q", got)
+		}
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+
+	a := &app{env: map[string]string{
+		"RELEASE_FORGE":     "gitlab",
+		"RELEASE_API_URL":   server.URL,
+		"RELEASE_OWNER":     "owner",
+		"RELEASE_REPO":      "repo",
+		"RELEASE_BODY_MODE": "patch",
+	}, stdout: ioDiscard(), stderr: ioDiscard()}
+	if err := a.updateReleaseBody("v1.0.0", notesFile, "token"); err != nil {
+		t.Fatal(err)
 	}
 }
 

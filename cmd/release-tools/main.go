@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,19 +30,22 @@ Commands:
 Environment:
   RELEASE_CONFIG_FILE   Config file, defaults to .release-tools.env
   RELEASE_PROJECT       Project name used by release scripts
-  RELEASE_OWNER         Codeberg/Gitea owner
+  RELEASE_FORGE         Forge type: gitea, forgejo, github, or gitlab
+  RELEASE_OWNER         Forge owner or namespace
   RELEASE_REPO          Repository name, defaults to RELEASE_PROJECT
-  RELEASE_API_URL       Forge API URL, defaults to Codeberg
-  RELEASE_DOWNLOAD_URL  Forge download URL, defaults to Codeberg
+  RELEASE_API_URL       Forge API URL, defaults by RELEASE_FORGE
+  RELEASE_DOWNLOAD_URL  Forge download URL, defaults by RELEASE_FORGE
   RELEASE_NOTES_SOURCE  Release notes source, defaults to NEWS.md
   RELEASE_NOTES_MODE    Release notes mode, defaults to news-md
   RELEASE_BODY_MODE     Release body mode, defaults to none
   GORELEASER_CONFIG     GoReleaser config path, defaults to .goreleaser.yaml
   RELEASE_REQUIRE_GO    Set to 1 when a consumer release requires Go
+  RELEASE_TOKEN         Release publish token; maps to forge-native token env
   VERSION               Tag/version for publish-tag and notes
 `
 
 var allowedConfigKeys = map[string]bool{
+	"RELEASE_FORGE":        true,
 	"RELEASE_PROJECT":      true,
 	"RELEASE_OWNER":        true,
 	"RELEASE_REPO":         true,
@@ -54,6 +58,14 @@ var allowedConfigKeys = map[string]bool{
 	"GORELEASER_BIN":       true,
 	"RELEASE_REQUIRE_GO":   true,
 }
+
+type forgeKind string
+
+const (
+	forgeGitea  forgeKind = "gitea"
+	forgeGitHub forgeKind = "github"
+	forgeGitLab forgeKind = "gitlab"
+)
 
 type app struct {
 	toolkitRoot string
@@ -327,6 +339,10 @@ func (a *app) doctor() error {
 	notesSource := a.releaseNotesSource()
 	notesMode := a.releaseNotesMode()
 	bodyMode := a.releaseBodyMode()
+	forge, err := a.releaseForge()
+	if err != nil {
+		return err
+	}
 
 	if _, err := os.Stat(filepath.Join(a.repoRoot, config)); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -365,8 +381,10 @@ func (a *app) doctor() error {
 	a.log("Repository root: %s", a.repoRoot)
 	a.log("Toolkit root: %s", a.toolkitRoot)
 	a.log("Project: %s", a.env["RELEASE_PROJECT"])
+	a.log("Forge: %s", forge)
 	a.log("Owner: %s", a.env["RELEASE_OWNER"])
 	a.log("Repo: %s", a.releaseRepo())
+	a.log("Forge API URL: %s", a.releaseAPIURL())
 	a.log("GoReleaser config: %s", config)
 	a.log("GoReleaser binary: %s", goreleaserBin)
 	a.log("Release notes mode: %s", notesMode)
@@ -437,7 +455,7 @@ func (a *app) runGoreleaser(args ...string) error {
 	cmd.Stderr = a.stderr
 	cmd.Env = a.environ()
 	if token, ok := a.resolveOptionalToken(); ok {
-		cmd.Env = append(cmd.Env, "GITEA_TOKEN="+token)
+		cmd.Env = append(cmd.Env, a.goreleaserTokenEnv()+"="+token)
 	}
 	return cmd.Run()
 }
@@ -522,7 +540,7 @@ func (a *app) runGoreleaserWithToken(token string, args ...string) error {
 	cmd.Dir = a.repoRoot
 	cmd.Stdout = a.stdout
 	cmd.Stderr = a.stderr
-	cmd.Env = append(a.environ(), "GITEA_TOKEN="+token)
+	cmd.Env = append(a.environ(), a.goreleaserTokenEnv()+"="+token)
 	return cmd.Run()
 }
 
@@ -656,6 +674,23 @@ func (a *app) updateReleaseBody(tag, notesFile, token string) error {
 		return err
 	}
 
+	forge, err := a.releaseForge()
+	if err != nil {
+		return err
+	}
+	switch forge {
+	case forgeGitea:
+		return a.updateGiteaReleaseBody(tag, body, token)
+	case forgeGitHub:
+		return a.updateGitHubReleaseBody(tag, body, token)
+	case forgeGitLab:
+		return a.updateGitLabReleaseBody(tag, body, token)
+	default:
+		return fmt.Errorf("unsupported RELEASE_FORGE for release body patching: %s", forge)
+	}
+}
+
+func (a *app) updateGiteaReleaseBody(tag string, body []byte, token string) error {
 	releaseURL := fmt.Sprintf("%s/repos/%s/%s/releases/tags/%s", a.releaseAPIURL(), a.releaseOwner(), a.releaseRepo(), tag)
 	req, err := http.NewRequest(http.MethodGet, releaseURL, nil)
 	if err != nil {
@@ -703,23 +738,134 @@ func (a *app) updateReleaseBody(tag, notesFile, token string) error {
 	return nil
 }
 
+func (a *app) updateGitHubReleaseBody(tag string, body []byte, token string) error {
+	releaseURL := fmt.Sprintf("%s/repos/%s/%s/releases/tags/%s", a.releaseAPIURL(), a.releaseOwner(), a.releaseRepo(), url.PathEscape(tag))
+	req, err := http.NewRequest(http.MethodGet, releaseURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("failed to fetch release %s: %s", tag, resp.Status)
+	}
+	var release struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return err
+	}
+	if release.ID == 0 {
+		return fmt.Errorf("release id not found for %s", tag)
+	}
+
+	payload, err := json.Marshal(map[string]string{"body": string(body)})
+	if err != nil {
+		return err
+	}
+	patchURL := fmt.Sprintf("%s/repos/%s/%s/releases/%d", a.releaseAPIURL(), a.releaseOwner(), a.releaseRepo(), release.ID)
+	patchReq, err := http.NewRequest(http.MethodPatch, patchURL, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	patchReq.Header.Set("Authorization", "Bearer "+token)
+	patchReq.Header.Set("Accept", "application/vnd.github+json")
+	patchReq.Header.Set("Content-Type", "application/json")
+	patchResp, err := http.DefaultClient.Do(patchReq)
+	if err != nil {
+		return err
+	}
+	defer patchResp.Body.Close()
+	if patchResp.StatusCode < 200 || patchResp.StatusCode >= 300 {
+		return fmt.Errorf("failed to update release %s: %s", tag, patchResp.Status)
+	}
+	a.log("Updated release body for %s", tag)
+	return nil
+}
+
+func (a *app) updateGitLabReleaseBody(tag string, body []byte, token string) error {
+	projectPath := url.PathEscape(a.releaseOwner() + "/" + a.releaseRepo())
+	patchURL := fmt.Sprintf("%s/projects/%s/releases/%s", a.releaseAPIURL(), projectPath, url.PathEscape(tag))
+	payload, err := json.Marshal(map[string]string{"description": string(body)})
+	if err != nil {
+		return err
+	}
+	patchReq, err := http.NewRequest(http.MethodPut, patchURL, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	patchReq.Header.Set("PRIVATE-TOKEN", token)
+	patchReq.Header.Set("Content-Type", "application/json")
+	patchResp, err := http.DefaultClient.Do(patchReq)
+	if err != nil {
+		return err
+	}
+	defer patchResp.Body.Close()
+	if patchResp.StatusCode < 200 || patchResp.StatusCode >= 300 {
+		return fmt.Errorf("failed to update release %s: %s", tag, patchResp.Status)
+	}
+	a.log("Updated release body for %s", tag)
+	return nil
+}
+
 func (a *app) resolveToken() (string, error) {
-	if token := a.env["CODEBERG_TOKEN"]; token != "" {
+	if _, err := a.releaseForge(); err != nil {
+		return "", err
+	}
+	if token := a.env["RELEASE_TOKEN"]; token != "" {
 		return token, nil
 	}
-	home, _ := os.UserHomeDir()
-	if home != "" {
-		content, err := os.ReadFile(filepath.Join(home, ".config/codeberg/token"))
-		if err == nil {
-			return strings.TrimRight(string(content), "\r\n"), nil
-		}
+	tokenEnv := a.goreleaserTokenEnv()
+	if token := a.env[tokenEnv]; token != "" {
+		return token, nil
 	}
-	return "", errors.New("CODEBERG_TOKEN is required. Export it from ~/.config/codeberg/token or set it directly in the environment")
+	return "", fmt.Errorf("RELEASE_TOKEN or %s is required for RELEASE_FORGE=%s", tokenEnv, a.releaseForgeName())
 }
 
 func (a *app) resolveOptionalToken() (string, bool) {
 	token, err := a.resolveToken()
 	return token, err == nil
+}
+
+func (a *app) releaseForge() (forgeKind, error) {
+	switch strings.ToLower(envValue(a.env, "RELEASE_FORGE", string(forgeGitea))) {
+	case "gitea", "forgejo", "codeberg":
+		return forgeGitea, nil
+	case "github":
+		return forgeGitHub, nil
+	case "gitlab":
+		return forgeGitLab, nil
+	default:
+		return "", fmt.Errorf("unsupported RELEASE_FORGE: %s", a.env["RELEASE_FORGE"])
+	}
+}
+
+func (a *app) releaseForgeName() string {
+	forge, err := a.releaseForge()
+	if err != nil {
+		return envValue(a.env, "RELEASE_FORGE", string(forgeGitea))
+	}
+	return string(forge)
+}
+
+func (a *app) goreleaserTokenEnv() string {
+	forge, err := a.releaseForge()
+	if err != nil {
+		return "RELEASE_TOKEN"
+	}
+	switch forge {
+	case forgeGitHub:
+		return "GITHUB_TOKEN"
+	case forgeGitLab:
+		return "GITLAB_TOKEN"
+	default:
+		return "GITEA_TOKEN"
+	}
 }
 
 func (a *app) releaseOwner() string {
@@ -734,7 +880,39 @@ func (a *app) releaseRepo() string {
 }
 
 func (a *app) releaseAPIURL() string {
-	return envValue(a.env, "RELEASE_API_URL", "https://codeberg.org/api/v1")
+	if apiURL := a.env["RELEASE_API_URL"]; apiURL != "" {
+		return apiURL
+	}
+	forge, err := a.releaseForge()
+	if err != nil {
+		return "https://codeberg.org/api/v1"
+	}
+	switch forge {
+	case forgeGitHub:
+		return "https://api.github.com"
+	case forgeGitLab:
+		return "https://gitlab.com/api/v4"
+	default:
+		return "https://codeberg.org/api/v1"
+	}
+}
+
+func (a *app) releaseDownloadURL() string {
+	if downloadURL := a.env["RELEASE_DOWNLOAD_URL"]; downloadURL != "" {
+		return downloadURL
+	}
+	forge, err := a.releaseForge()
+	if err != nil {
+		return "https://codeberg.org"
+	}
+	switch forge {
+	case forgeGitHub:
+		return "https://github.com"
+	case forgeGitLab:
+		return "https://gitlab.com"
+	default:
+		return "https://codeberg.org"
+	}
 }
 
 func (a *app) releaseNotesSource() string {
