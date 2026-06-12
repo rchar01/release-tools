@@ -55,11 +55,13 @@
   - `GORELEASER_CONFIG`
   - `GORELEASER_BIN`
   - `RELEASE_REQUIRE_GO`
+  - `RELEASE_TOKEN_FILE`
   - `RELEASE_TOKEN`
   - `VERSION`
 - `.release-tools.env` is the default repo-local config file.
 - Environment variables override `.release-tools.env` values.
 - `RELEASE_TOKEN` is the public forge-token variable.
+- `RELEASE_TOKEN_FILE` may point at a local file containing the forge token.
 - The CLI maps `RELEASE_TOKEN` to `GITEA_TOKEN`, `GITHUB_TOKEN`, or
   `GITLAB_TOKEN` internally for GoReleaser based on `RELEASE_FORGE`.
 
@@ -93,8 +95,8 @@
 ## Tooling / Env Notes
 - the CLI requires a resolvable `goreleaser`.
 - release body patching uses the Go HTTP client.
-- token resolution reads `RELEASE_TOKEN` or the native GoReleaser token variable
-  for `RELEASE_FORGE`.
+- token resolution reads `RELEASE_TOKEN`, the native GoReleaser token variable
+  for `RELEASE_FORGE`, or `RELEASE_TOKEN_FILE` in that order.
 - GoReleaser resolution checks `GORELEASER_BIN`, then common install locations.
 - Go baseline is Go 1.26 with toolchain `go1.26.4`.
 - Dev-container verification uses Podman through `scripts/in-container`.

@@ -7,6 +7,13 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-06-12
+
+### Added
+
+- added `RELEASE_TOKEN_FILE` as a supported config key for reading the publish
+  token from a local file after environment token variables are checked
+
 ## [3.0.0] - 2026-06-12
 
 ### Changed

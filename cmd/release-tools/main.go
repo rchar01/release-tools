@@ -41,6 +41,7 @@ Environment:
   GORELEASER_CONFIG     GoReleaser config path, defaults to .goreleaser.yaml
   RELEASE_REQUIRE_GO    Set to 1 when a consumer release requires Go
   RELEASE_TOKEN         Release publish token; maps to forge-native token env
+  RELEASE_TOKEN_FILE    File containing release publish token
   VERSION               Tag/version for publish-tag and notes
 `
 
@@ -57,6 +58,7 @@ var allowedConfigKeys = map[string]bool{
 	"GORELEASER_CONFIG":    true,
 	"GORELEASER_BIN":       true,
 	"RELEASE_REQUIRE_GO":   true,
+	"RELEASE_TOKEN_FILE":   true,
 }
 
 type forgeKind string
@@ -817,19 +819,64 @@ func (a *app) resolveToken() (string, error) {
 	if _, err := a.releaseForge(); err != nil {
 		return "", err
 	}
-	if token := a.env["RELEASE_TOKEN"]; token != "" {
-		return token, nil
-	}
 	tokenEnv := a.goreleaserTokenEnv()
-	if token := a.env[tokenEnv]; token != "" {
+	if token, ok := a.resolveEnvironmentToken(); ok {
 		return token, nil
 	}
-	return "", fmt.Errorf("RELEASE_TOKEN or %s is required for RELEASE_FORGE=%s", tokenEnv, a.releaseForgeName())
+	if tokenFile := a.env["RELEASE_TOKEN_FILE"]; tokenFile != "" {
+		token, err := readTokenFile(expandTokenFilePath(tokenFile))
+		if err != nil {
+			return "", err
+		}
+		return token, nil
+	}
+	return "", fmt.Errorf("RELEASE_TOKEN, %s, or RELEASE_TOKEN_FILE is required for RELEASE_FORGE=%s", tokenEnv, a.releaseForgeName())
+}
+
+func readTokenFile(path string) (string, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to read RELEASE_TOKEN_FILE %s: %w", path, err)
+	}
+	token := strings.TrimRight(string(content), "\r\n")
+	if token == "" {
+		return "", fmt.Errorf("RELEASE_TOKEN_FILE is empty: %s", path)
+	}
+	return token, nil
+}
+
+func expandTokenFilePath(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return path
+	}
+	for _, prefix := range []string{"~/", "$HOME/", "${HOME}/"} {
+		if rest, ok := strings.CutPrefix(path, prefix); ok {
+			return filepath.Join(home, rest)
+		}
+	}
+	if path == "~" || path == "$HOME" || path == "${HOME}" {
+		return home
+	}
+	return path
 }
 
 func (a *app) resolveOptionalToken() (string, bool) {
-	token, err := a.resolveToken()
-	return token, err == nil
+	if _, err := a.releaseForge(); err != nil {
+		return "", false
+	}
+	return a.resolveEnvironmentToken()
+}
+
+func (a *app) resolveEnvironmentToken() (string, bool) {
+	if token := a.env["RELEASE_TOKEN"]; token != "" {
+		return token, true
+	}
+	tokenEnv := a.goreleaserTokenEnv()
+	if token := a.env[tokenEnv]; token != "" {
+		return token, true
+	}
+	return "", false
 }
 
 func (a *app) releaseForge() (forgeKind, error) {

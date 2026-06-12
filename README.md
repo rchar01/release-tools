@@ -4,14 +4,15 @@
   <img src="assets/brand/release-tools-forge-avatar-transparent-512.png" width="256" alt="release-tools logo">
 </div>
 
-A small installed CLI for shared GoReleaser-based release automation on
-Gitea/Forgejo, GitHub, and GitLab.
+A thin, opinionated layer that standardizes release workflows for repositories
+that use GoReleaser as the build and publishing engine.
 
 ## Purpose
 
-`release-tools` is a small shared release layer around Goreleaser. It keeps
-project-specific build configuration in each consuming repository while moving
-repeatable release behavior into one installed helper command.
+`release-tools` is a small installed CLI for shared GoReleaser-based release
+automation on Gitea/Forgejo, GitHub, and GitLab. It keeps project-specific build
+configuration in each consuming repository while moving repeatable release
+behavior into one installed helper command.
 
 Use it when you want multiple projects to share the same release command
 surface, token convention, validation, release notes flow, and safe tag-publish
@@ -27,8 +28,8 @@ This toolkit adds the workflow around it:
 - repo-local `.release-tools.env` configuration with environment overrides
 - fast validation for required release variables such as `RELEASE_PROJECT`,
   `RELEASE_OWNER`, `RELEASE_FORGE`, and `VERSION`
-- a public `RELEASE_TOKEN` contract that is mapped internally to the forge token
-  environment variable GoReleaser expects
+- a public `RELEASE_TOKEN` / `RELEASE_TOKEN_FILE` contract that is mapped
+  internally to the forge token environment variable GoReleaser expects
 - safer `publish-tag` publishing from a clean temporary clone of the exact tag
 - consistent Goreleaser execution from the repository root
 - release notes generation from `NEWS.md`, passed into Goreleaser during
@@ -57,16 +58,16 @@ Install the CLI:
 ```bash
 mkdir -p "$HOME/.local/bin"
 curl -fsSL -o "$HOME/.local/bin/release-tools" \
-  "https://codeberg.org/rch/release-tools/releases/download/v3.0.0/release-tools_3.0.0_linux_amd64"
+  "https://codeberg.org/rch/release-tools/releases/download/v3.1.0/release-tools_3.1.0_linux_amd64"
 chmod +x "$HOME/.local/bin/release-tools"
 ```
 
 Use the matching binary for your OS and architecture:
 
-- `release-tools_3.0.0_linux_amd64`
-- `release-tools_3.0.0_linux_arm64`
-- `release-tools_3.0.0_darwin_amd64`
-- `release-tools_3.0.0_darwin_arm64`
+- `release-tools_3.1.0_linux_amd64`
+- `release-tools_3.1.0_linux_arm64`
+- `release-tools_3.1.0_darwin_amd64`
+- `release-tools_3.1.0_darwin_arm64`
 
 In a project repository:
 
@@ -81,6 +82,7 @@ RELEASE_PROJECT=mycli
 RELEASE_FORGE=gitea
 RELEASE_OWNER=myowner
 RELEASE_REPO=mycli
+# RELEASE_TOKEN_FILE=~/.config/forge/token
 RELEASE_NOTES_SOURCE=NEWS.md
 RELEASE_NOTES_MODE=news-md
 RELEASE_BODY_MODE=patch
@@ -100,11 +102,11 @@ release-tools snapshot
 release-tools notes v1.2.3
 ```
 
-Publishing requires `RELEASE_TOKEN` or the native token variable for the selected
-forge, plus an existing tag:
+Publishing requires `RELEASE_TOKEN`, the native token variable for the selected
+forge, or `RELEASE_TOKEN_FILE` pointing at a local token file, plus an existing
+tag:
 
 ```bash
-export RELEASE_TOKEN="$(cat ~/.config/forge/token)"
 release-tools publish-tag v1.2.3
 ```
 

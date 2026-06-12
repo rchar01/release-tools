@@ -95,6 +95,76 @@ func TestResolveTokenMapsForgeNativeEnvironment(t *testing.T) {
 	}
 }
 
+func TestResolveTokenReadsTokenFile(t *testing.T) {
+	tokenFile := filepath.Join(t.TempDir(), "token")
+	writeFile(t, tokenFile, "file-token\r\n")
+
+	a := &app{env: map[string]string{"RELEASE_FORGE": "gitea", "RELEASE_TOKEN_FILE": tokenFile}}
+	token, err := a.resolveToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token != "file-token" {
+		t.Fatalf("token = %q, want file-token", token)
+	}
+}
+
+func TestResolveTokenEnvironmentPrecedesTokenFile(t *testing.T) {
+	tokenFile := filepath.Join(t.TempDir(), "token")
+	writeFile(t, tokenFile, "file-token\n")
+
+	a := &app{env: map[string]string{
+		"RELEASE_FORGE":      "gitea",
+		"GITEA_TOKEN":        "native-token",
+		"RELEASE_TOKEN_FILE": tokenFile,
+	}}
+	token, err := a.resolveToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token != "native-token" {
+		t.Fatalf("token = %q, want native-token", token)
+	}
+
+	a.env["RELEASE_TOKEN"] = "release-token"
+	token, err = a.resolveToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token != "release-token" {
+		t.Fatalf("token = %q, want release-token", token)
+	}
+}
+
+func TestResolveOptionalTokenDoesNotReadTokenFile(t *testing.T) {
+	tokenFile := filepath.Join(t.TempDir(), "token")
+	writeFile(t, tokenFile, "file-token\n")
+
+	a := &app{env: map[string]string{"RELEASE_FORGE": "gitea", "RELEASE_TOKEN_FILE": tokenFile}}
+	if token, ok := a.resolveOptionalToken(); ok {
+		t.Fatalf("optional token = %q, want no token", token)
+	}
+}
+
+func TestExpandTokenFilePath(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		t.Skip("home directory unavailable")
+	}
+
+	tests := map[string]string{
+		"~/token":       filepath.Join(home, "token"),
+		"$HOME/token":   filepath.Join(home, "token"),
+		"${HOME}/token": filepath.Join(home, "token"),
+		"/tmp/token":    "/tmp/token",
+	}
+	for input, want := range tests {
+		if got := expandTokenFilePath(input); got != want {
+			t.Fatalf("expandTokenFilePath(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
 func TestUpdateGitHubReleaseBody(t *testing.T) {
 	notesFile := filepath.Join(t.TempDir(), "notes.md")
 	writeFile(t, notesFile, "hello github\n")

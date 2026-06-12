@@ -4,6 +4,11 @@ This file gives a short, release-oriented view of what changed between versions.
 
 ## Unreleased
 
+## v3.1.0 - 2026-06-12
+
+- add `RELEASE_TOKEN_FILE` so local maintainers can configure a token file path
+  instead of exporting `RELEASE_TOKEN` manually before publishing
+
 ## v3.0.0 - 2026-06-12
 
 - breaking: replace the Codeberg-specific `CODEBERG_TOKEN` contract with

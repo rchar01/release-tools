@@ -77,7 +77,9 @@ implementation does three useful things when invoking GoReleaser:
 
 - resolves the GoReleaser binary from common install locations
 - ensures GoReleaser runs from the repository root
-- maps `RELEASE_TOKEN` to the forge-native token environment only for the
+- resolves `RELEASE_TOKEN`, a forge-native token variable, or
+  `RELEASE_TOKEN_FILE`
+- maps the resolved token to the forge-native token environment only for the
   GoReleaser process
 
 This removes environment drift between local shells and CI.
@@ -186,8 +188,8 @@ Mitigation:
 
 For local maintainer use:
 
-```bash
-export RELEASE_TOKEN="$(cat ~/.config/forge/token)"
+```sh
+RELEASE_TOKEN_FILE=~/.config/forge/token
 ```
 
 For CI:

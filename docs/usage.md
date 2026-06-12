@@ -36,7 +36,7 @@ Linux amd64 example:
 ```bash
 mkdir -p "$HOME/.local/bin"
 curl -fsSL -o "$HOME/.local/bin/release-tools" \
-  "https://codeberg.org/rch/release-tools/releases/download/v3.0.0/release-tools_3.0.0_linux_amd64"
+  "https://codeberg.org/rch/release-tools/releases/download/v3.1.0/release-tools_3.1.0_linux_amd64"
 chmod +x "$HOME/.local/bin/release-tools"
 ```
 
@@ -48,15 +48,15 @@ release-tools_<version>_<os>_<arch>
 
 Supported release binaries:
 
-- `release-tools_3.0.0_linux_amd64`
-- `release-tools_3.0.0_linux_arm64`
-- `release-tools_3.0.0_darwin_amd64`
-- `release-tools_3.0.0_darwin_arm64`
+- `release-tools_3.1.0_linux_amd64`
+- `release-tools_3.1.0_linux_arm64`
+- `release-tools_3.1.0_darwin_amd64`
+- `release-tools_3.1.0_darwin_arm64`
 
 For system-wide installation, use a privileged install directory instead:
 
 ```bash
-sudo install -m 0755 release-tools_3.0.0_linux_amd64 /usr/local/bin/release-tools
+sudo install -m 0755 release-tools_3.1.0_linux_amd64 /usr/local/bin/release-tools
 ```
 
 ## 2. Define Release Tools Config
@@ -70,6 +70,7 @@ RELEASE_PROJECT=platformctl
 RELEASE_FORGE=gitea
 RELEASE_OWNER=rch
 RELEASE_REPO=platformctl
+# RELEASE_TOKEN_FILE=~/.config/forge/token
 RELEASE_NOTES_SOURCE=NEWS.md
 RELEASE_NOTES_MODE=news-md
 RELEASE_BODY_MODE=patch
@@ -102,6 +103,7 @@ Supported `.release-tools.env` keys:
 - `GORELEASER_CONFIG`
 - `GORELEASER_BIN`
 - `RELEASE_REQUIRE_GO`
+- `RELEASE_TOKEN_FILE`
 
 Supported environment-only variables:
 
@@ -121,7 +123,7 @@ Required for release commands:
 
 Additionally required for `release-tools publish-tag`:
 
-- `VERSION` or a positional tag argument such as `v3.0.0`
+- `VERSION` or a positional tag argument such as `v3.1.0`
 
 ## 4. Add GoReleaser Configuration
 
@@ -203,14 +205,25 @@ Local maintainer flow should support:
 
 - `RELEASE_TOKEN` from the environment
 - or the native GoReleaser token variable for `RELEASE_FORGE`
+- or `RELEASE_TOKEN_FILE` pointing at a local token file
 
 Recommended local setup:
 
-```bash
-export RELEASE_TOKEN="$(cat ~/.config/forge/token)"
+```sh
+RELEASE_TOKEN_FILE=~/.config/forge/token
 ```
 
 CI should provide `RELEASE_TOKEN` through repository secrets.
+
+Token resolution order is:
+
+1. `RELEASE_TOKEN`
+2. native forge token variable, such as `GITEA_TOKEN`
+3. `RELEASE_TOKEN_FILE`
+
+`RELEASE_TOKEN_FILE` supports `~`, `$HOME`, and `${HOME}` at the start of the
+path. The file content is read only for `publish` and `publish-tag`; trailing
+newlines are trimmed and the token is not printed.
 
 `release-tools` maps that internally to the token variable GoReleaser expects:
 
@@ -227,8 +240,8 @@ release-tools doctor
 release-tools check
 release-tools snapshot
 release-tools publish
-release-tools publish-tag v3.0.0
-release-tools notes v3.0.0
+release-tools publish-tag v3.1.0
+release-tools notes v3.1.0
 ```
 
 `release-tools publish-tag` publishes from a clean full-history clone detached at
