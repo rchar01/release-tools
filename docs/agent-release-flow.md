@@ -76,6 +76,8 @@ The installed `release-tools` binary provides the stable command surface. Its Go
 implementation does three useful things when invoking GoReleaser:
 
 - resolves the GoReleaser binary from common install locations
+- reports the installed `release-tools` version and resolved GoReleaser version
+  in `doctor`
 - ensures GoReleaser runs from the repository root
 - resolves `RELEASE_TOKEN`, a forge-native token variable, or
   `RELEASE_TOKEN_FILE`
@@ -180,7 +182,7 @@ Mitigation:
 1. define artifact names and checksum output in `.goreleaser.yaml`
 2. add `.release-tools.env`
 3. install `release-tools` into `PATH`
-4. call `release-tools doctor`, `check`, `snapshot`, `publish`, `publish-tag`, and `notes`
+4. call `release-tools version`, `doctor`, `check`, `snapshot`, `publish`, `publish-tag`, and `notes`
 5. add CI for push validation and tag publishing if needed
 6. add a release installer if downstream repos need binary consumption
 

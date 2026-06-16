@@ -64,10 +64,13 @@
 - `RELEASE_TOKEN_FILE` may point at a local file containing the forge token.
 - The CLI maps `RELEASE_TOKEN` to `GITEA_TOKEN`, `GITHUB_TOKEN`, or
   `GITLAB_TOKEN` internally for GoReleaser based on `RELEASE_FORGE`.
+- Supported `RELEASE_FORGE` values are `codeberg`, `gitea`, `forgejo`,
+  `github`, and `gitlab`.
 
 ## Commands
 - CLI:
   - `release-tools tools-check`
+  - `release-tools version`
   - `release-tools doctor`
   - `release-tools check`
   - `release-tools snapshot`

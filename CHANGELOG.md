@@ -7,6 +7,14 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- added `release-tools version` and `release-tools --version` for reporting the
+  installed release-tools version
+- added resolved GoReleaser version output to `release-tools doctor`
+- added first-class docs and tests for `RELEASE_FORGE=codeberg` as a
+  Gitea-compatible forge value
+
 ## [3.1.0] - 2026-06-12
 
 ### Added

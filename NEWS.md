@@ -4,6 +4,12 @@ This file gives a short, release-oriented view of what changed between versions.
 
 ## Unreleased
 
+- add `release-tools version` and `release-tools --version` for reporting the
+  installed release-tools version
+- report the resolved GoReleaser version in `release-tools doctor`
+- document and test `RELEASE_FORGE=codeberg` as a first-class Gitea-compatible
+  forge value
+
 ## v3.1.0 - 2026-06-12
 
 - add `RELEASE_TOKEN_FILE` so local maintainers can configure a token file path

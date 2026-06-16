@@ -14,6 +14,7 @@ shellcheck scripts/*
 go test ./...
 go build -o .tmp/release-tools-test ./cmd/release-tools
 .tmp/release-tools-test help >/dev/null
+.tmp/release-tools-test version >/dev/null
 
 scripts/test-errors
 .tmp/release-tools-test doctor >/dev/null
@@ -43,6 +44,7 @@ mkdir -p "$(dirname -- "$install_bin")"
 cp "$release_binary" "$install_bin"
 chmod +x "$install_bin"
 "$install_bin" help >/dev/null
+"$install_bin" --version >/dev/null
 notes_file="$(.tmp/release-tools-test notes v3.0.0)"
 grep -q 'RELEASE_FORGE' "$notes_file"
 rm -f "$notes_file"

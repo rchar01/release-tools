@@ -67,7 +67,7 @@ Example:
 
 ```sh
 RELEASE_PROJECT=platformctl
-RELEASE_FORGE=gitea
+RELEASE_FORGE=codeberg
 RELEASE_OWNER=rch
 RELEASE_REPO=platformctl
 # RELEASE_TOKEN_FILE=~/.config/forge/token
@@ -79,12 +79,13 @@ GORELEASER_CONFIG=.goreleaser.yaml
 
 Supported `RELEASE_FORGE` values:
 
+- `codeberg`
 - `gitea`
 - `forgejo`
 - `github`
 - `gitlab`
 
-`gitea` and `forgejo` use Codeberg-compatible defaults unless
+`codeberg`, `gitea`, and `forgejo` use Codeberg-compatible defaults unless
 `RELEASE_API_URL` and `RELEASE_DOWNLOAD_URL` are set explicitly.
 
 ## 3. Review Supported Variables
@@ -141,6 +142,7 @@ The project should define those directly.
 
 The config should be compatible with these CLI commands:
 
+- `release-tools version`
 - `release-tools doctor`
 - `release-tools check`
 - `release-tools snapshot`
@@ -227,7 +229,7 @@ newlines are trimmed and the token is not printed.
 
 `release-tools` maps that internally to the token variable GoReleaser expects:
 
-- `RELEASE_FORGE=gitea` or `forgejo`: `GITEA_TOKEN`
+- `RELEASE_FORGE=codeberg`, `gitea`, or `forgejo`: `GITEA_TOKEN`
 - `RELEASE_FORGE=github`: `GITHUB_TOKEN`
 - `RELEASE_FORGE=gitlab`: `GITLAB_TOKEN`
 
@@ -236,6 +238,7 @@ newlines are trimmed and the token is not printed.
 Run commands from the consumer repo root:
 
 ```bash
+release-tools version
 release-tools doctor
 release-tools check
 release-tools snapshot
@@ -290,11 +293,12 @@ The consuming project should not duplicate these behaviors.
 
 After wiring a project to `release-tools`, verify:
 
-1. `release-tools doctor`
-2. `release-tools check`
-3. `release-tools snapshot`
-4. `release-tools notes <current-tag>`
-5. `release-tools publish-tag <older-project-tag>`
+1. `release-tools version`
+2. `release-tools doctor`
+3. `release-tools check`
+4. `release-tools snapshot`
+5. `release-tools notes <current-tag>`
+6. `release-tools publish-tag <older-project-tag>`
 
 For the last command, it is fine to test with an intentionally invalid token if
 you only want to verify the flow gets through clone, notes, and build without

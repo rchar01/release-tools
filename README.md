@@ -23,8 +23,8 @@ behavior without copying release scripts between repositories.
 Goreleaser still owns builds, archives, checksums, and release asset publishing.
 This toolkit adds the workflow around it:
 
-- stable CLI commands such as `check`, `snapshot`, `publish`, `publish-tag`,
-  `notes`, and `doctor`
+- stable CLI commands such as `version`, `doctor`, `check`, `snapshot`,
+  `publish`, `publish-tag`, and `notes`
 - repo-local `.release-tools.env` configuration with environment overrides
 - fast validation for required release variables such as `RELEASE_PROJECT`,
   `RELEASE_OWNER`, `RELEASE_FORGE`, and `VERSION`
@@ -79,7 +79,7 @@ Minimal `.release-tools.env` shape:
 
 ```sh
 RELEASE_PROJECT=mycli
-RELEASE_FORGE=gitea
+RELEASE_FORGE=codeberg
 RELEASE_OWNER=myowner
 RELEASE_REPO=mycli
 # RELEASE_TOKEN_FILE=~/.config/forge/token
@@ -89,13 +89,14 @@ RELEASE_BODY_MODE=patch
 GORELEASER_CONFIG=.goreleaser.yaml
 ```
 
-Supported `RELEASE_FORGE` values are `gitea`, `forgejo`, `github`, and
-`gitlab`. `gitea` and `forgejo` use Codeberg-compatible defaults unless the
-project sets `RELEASE_API_URL` and `RELEASE_DOWNLOAD_URL`.
+Supported `RELEASE_FORGE` values are `codeberg`, `gitea`, `forgejo`, `github`,
+and `gitlab`. `codeberg`, `gitea`, and `forgejo` use Codeberg-compatible
+defaults unless the project sets `RELEASE_API_URL` and `RELEASE_DOWNLOAD_URL`.
 
 Common local verification flow:
 
 ```bash
+release-tools version
 release-tools doctor
 release-tools check
 release-tools snapshot

@@ -69,6 +69,32 @@ func TestOptionalVersionArgumentRejectsTooManyArgs(t *testing.T) {
 	}
 }
 
+func TestVersionCommandPrintsReleaseToolsVersion(t *testing.T) {
+	previous := releaseToolsVersion
+	releaseToolsVersion = "test-version"
+	t.Cleanup(func() { releaseToolsVersion = previous })
+
+	var stdout bytes.Buffer
+	a := &app{env: map[string]string{}, stdout: &stdout, stderr: ioDiscard()}
+	if err := a.run([]string{"--version"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := stdout.String(); got != "release-tools test-version\n" {
+		t.Fatalf("version output = %q", got)
+	}
+}
+
+func TestParseGoreleaserVersion(t *testing.T) {
+	output := `goreleaser: Release engineering, simplified.
+
+GitVersion:    v2.16.0
+GitCommit:     unknown
+`
+	if got := parseGoreleaserVersion(output); got != "v2.16.0" {
+		t.Fatalf("parseGoreleaserVersion = %q, want v2.16.0", got)
+	}
+}
+
 func TestResolveTokenMapsForgeNativeEnvironment(t *testing.T) {
 	a := &app{env: map[string]string{"RELEASE_FORGE": "github", "GITHUB_TOKEN": "github-token"}}
 	token, err := a.resolveToken()
@@ -92,6 +118,33 @@ func TestResolveTokenMapsForgeNativeEnvironment(t *testing.T) {
 	}
 	if got := a.goreleaserTokenEnv(); got != "GITLAB_TOKEN" {
 		t.Fatalf("token env = %q, want GITLAB_TOKEN", got)
+	}
+}
+
+func TestReleaseForgeAliasesUseGiteaCompatibility(t *testing.T) {
+	for _, forgeName := range []string{"codeberg", "forgejo"} {
+		t.Run(forgeName, func(t *testing.T) {
+			a := &app{env: map[string]string{"RELEASE_FORGE": forgeName}}
+			forge, err := a.releaseForge()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if forge != forgeGitea {
+				t.Fatalf("releaseForge() = %q, want %q", forge, forgeGitea)
+			}
+			if got := a.releaseForgeName(); got != forgeName {
+				t.Fatalf("releaseForgeName() = %q, want %q", got, forgeName)
+			}
+			if got := a.goreleaserTokenEnv(); got != "GITEA_TOKEN" {
+				t.Fatalf("goreleaserTokenEnv() = %q, want GITEA_TOKEN", got)
+			}
+			if got := a.releaseAPIURL(); got != "https://codeberg.org/api/v1" {
+				t.Fatalf("releaseAPIURL() = %q, want Codeberg API URL", got)
+			}
+			if got := a.releaseDownloadURL(); got != "https://codeberg.org" {
+				t.Fatalf("releaseDownloadURL() = %q, want Codeberg URL", got)
+			}
+		})
 	}
 }
 

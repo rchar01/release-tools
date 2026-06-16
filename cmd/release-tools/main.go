@@ -19,6 +19,7 @@ const usageText = `Usage: release-tools <command> [args]
 
 Commands:
   help                  Show this help text
+  version               Show release-tools version
   tools-check           Check required local tools
   doctor                Check release-tools configuration
   check                 Validate GoReleaser configuration
@@ -30,7 +31,7 @@ Commands:
 Environment:
   RELEASE_CONFIG_FILE   Config file, defaults to .release-tools.env
   RELEASE_PROJECT       Project name used by release scripts
-  RELEASE_FORGE         Forge type: gitea, forgejo, github, or gitlab
+  RELEASE_FORGE         Forge type: codeberg, gitea, forgejo, github, or gitlab
   RELEASE_OWNER         Forge owner or namespace
   RELEASE_REPO          Repository name, defaults to RELEASE_PROJECT
   RELEASE_API_URL       Forge API URL, defaults by RELEASE_FORGE
@@ -62,6 +63,8 @@ var allowedConfigKeys = map[string]bool{
 }
 
 type forgeKind string
+
+var releaseToolsVersion = "dev"
 
 const (
 	forgeGitea  forgeKind = "gitea"
@@ -232,6 +235,12 @@ func (a *app) run(args []string) error {
 		}
 		fmt.Fprint(a.stdout, usageText)
 		return nil
+	case "version", "-v", "--version":
+		if err := requireNoArgs("version", args); err != nil {
+			return err
+		}
+		fmt.Fprintf(a.stdout, "release-tools %s\n", releaseToolsVersion)
+		return nil
 	case "tools-check":
 		if err := requireNoArgs("tools-check", args); err != nil {
 			return err
@@ -341,8 +350,7 @@ func (a *app) doctor() error {
 	notesSource := a.releaseNotesSource()
 	notesMode := a.releaseNotesMode()
 	bodyMode := a.releaseBodyMode()
-	forge, err := a.releaseForge()
-	if err != nil {
+	if _, err := a.releaseForge(); err != nil {
 		return err
 	}
 
@@ -379,20 +387,44 @@ func (a *app) doctor() error {
 	if err != nil {
 		return err
 	}
+	goreleaserVersion := resolveGoreleaserVersion(goreleaserBin)
 
 	a.log("Repository root: %s", a.repoRoot)
 	a.log("Toolkit root: %s", a.toolkitRoot)
+	a.log("release-tools version: %s", releaseToolsVersion)
 	a.log("Project: %s", a.env["RELEASE_PROJECT"])
-	a.log("Forge: %s", forge)
+	a.log("Forge: %s", a.releaseForgeName())
 	a.log("Owner: %s", a.env["RELEASE_OWNER"])
 	a.log("Repo: %s", a.releaseRepo())
 	a.log("Forge API URL: %s", a.releaseAPIURL())
 	a.log("GoReleaser config: %s", config)
 	a.log("GoReleaser binary: %s", goreleaserBin)
+	a.log("GoReleaser version: %s", goreleaserVersion)
 	a.log("Release notes mode: %s", notesMode)
 	a.log("Release body mode: %s", bodyMode)
 	a.log("release-tools configuration looks valid")
 	return nil
+}
+
+func resolveGoreleaserVersion(goreleaserBin string) string {
+	output, err := exec.Command(goreleaserBin, "--version").CombinedOutput()
+	if err != nil {
+		return "unknown"
+	}
+	if version := parseGoreleaserVersion(string(output)); version != "" {
+		return version
+	}
+	return "unknown"
+}
+
+func parseGoreleaserVersion(output string) string {
+	for _, raw := range strings.Split(strings.ReplaceAll(output, "\r\n", "\n"), "\n") {
+		line := strings.TrimSpace(raw)
+		if version, ok := strings.CutPrefix(line, "GitVersion:"); ok {
+			return strings.TrimSpace(version)
+		}
+	}
+	return ""
 }
 
 func (a *app) ensureTools() error {
@@ -893,11 +925,12 @@ func (a *app) releaseForge() (forgeKind, error) {
 }
 
 func (a *app) releaseForgeName() string {
-	forge, err := a.releaseForge()
+	name := strings.ToLower(envValue(a.env, "RELEASE_FORGE", string(forgeGitea)))
+	_, err := a.releaseForge()
 	if err != nil {
-		return envValue(a.env, "RELEASE_FORGE", string(forgeGitea))
+		return name
 	}
-	return string(forge)
+	return name
 }
 
 func (a *app) goreleaserTokenEnv() string {

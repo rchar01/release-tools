@@ -3,11 +3,13 @@ SHELL := /bin/sh
 
 BIN ?= release-tools
 TMP_DIR ?= .tmp
+VERSION ?= $(shell git describe --tags --exact-match 2>/dev/null || git describe --tags --always --dirty 2>/dev/null || printf '%s' dev)
 BIN_PATH := $(TMP_DIR)/$(BIN)
 GO_TMP_DIR := $(CURDIR)/$(TMP_DIR)/go-build
 GO_CACHE_DIR := $(CURDIR)/$(TMP_DIR)/go-cache
 GO_ENV := CGO_ENABLED=0 GOTMPDIR=$(GO_TMP_DIR) GOCACHE=$(GO_CACHE_DIR)
-RELEASE_TOOLS ?= $(GO_ENV) go run ./cmd/release-tools
+LD_FLAGS := -X main.releaseToolsVersion=$(VERSION)
+RELEASE_TOOLS ?= $(GO_ENV) go run -ldflags "$(LD_FLAGS)" ./cmd/release-tools
 
 .PHONY: help build test verify container-test check snapshot clean
 
@@ -29,7 +31,7 @@ help:
 ## Build the release-tools CLI into .tmp/
 build:
 	mkdir -p "$(GO_TMP_DIR)" "$(GO_CACHE_DIR)"
-	$(GO_ENV) go build -o "$(BIN_PATH)" ./cmd/release-tools
+	$(GO_ENV) go build -ldflags "$(LD_FLAGS)" -o "$(BIN_PATH)" ./cmd/release-tools
 
 ## Run the full local verification suite
 test:
