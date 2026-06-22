@@ -15,6 +15,11 @@ go test ./...
 go build -o .tmp/release-tools-test ./cmd/release-tools
 .tmp/release-tools-test help >/dev/null
 .tmp/release-tools-test version >/dev/null
+.tmp/release-tools-test completion bash >/dev/null
+.tmp/release-tools-test completion zsh >/dev/null
+.tmp/release-tools-test completion fish >/dev/null
+.tmp/release-tools-test completion powershell >/dev/null
+.tmp/release-tools-test __complete "" >/dev/null 2>/dev/null
 
 scripts/test-errors
 .tmp/release-tools-test doctor >/dev/null
@@ -45,6 +50,7 @@ cp "$release_binary" "$install_bin"
 chmod +x "$install_bin"
 "$install_bin" help >/dev/null
 "$install_bin" --version >/dev/null
+"$install_bin" completion bash >/dev/null
 notes_file="$(.tmp/release-tools-test notes v3.0.0)"
 grep -q 'RELEASE_FORGE' "$notes_file"
 rm -f "$notes_file"

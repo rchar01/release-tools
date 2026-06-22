@@ -1,81 +1,86 @@
-# release-tools
-
 <div align="center">
   <img src="assets/brand/release-tools-forge-avatar-transparent-512.png" width="256" alt="release-tools logo">
 </div>
 
-A thin, opinionated layer that standardizes release workflows for repositories
-that use GoReleaser as the build and publishing engine.
+<h1 align="center">release-tools</h1>
 
-## Purpose
+<p align="center">
+  A small installed CLI for standardizing GoReleaser-based release workflows
+  across repositories.
+</p>
 
-`release-tools` is a small installed CLI for shared GoReleaser-based release
-automation on Gitea/Forgejo, GitHub, and GitLab. It keeps project-specific build
-configuration in each consuming repository while moving repeatable release
-behavior into one installed helper command.
+---
 
-Use it when you want multiple projects to share the same release command
-surface, token convention, validation, release notes flow, and safe tag-publish
-behavior without copying release scripts between repositories.
+`release-tools` keeps project-specific build config in each repository while
+moving repeatable release behavior into one command on `PATH`.
 
-## What It Adds Over Goreleaser
+It is intended for Go, shell, and documentation/toolkit projects that publish
+with GoReleaser on Codeberg, Gitea, Forgejo, GitHub, or GitLab.
 
-Goreleaser still owns builds, archives, checksums, and release asset publishing.
-This toolkit adds the workflow around it:
+## Overview
 
-- stable CLI commands such as `version`, `doctor`, `check`, `snapshot`,
-  `publish`, `publish-tag`, and `notes`
+GoReleaser still owns builds, checksums, archives, and release asset publishing.
+`release-tools` adds the workflow around it:
+
+- stable commands for checking, snapshotting, publishing, and generating notes
 - repo-local `.release-tools.env` configuration with environment overrides
-- fast validation for required release variables such as `RELEASE_PROJECT`,
-  `RELEASE_OWNER`, `RELEASE_FORGE`, and `VERSION`
-- a public `RELEASE_TOKEN` / `RELEASE_TOKEN_FILE` contract that is mapped
-  internally to the forge token environment variable GoReleaser expects
-- safer `publish-tag` publishing from a clean temporary clone of the exact tag
-- consistent Goreleaser execution from the repository root
-- release notes generation from `NEWS.md`, passed into Goreleaser during
-  publish, with optional release body patching after publish
+- a shared `RELEASE_TOKEN` / `RELEASE_TOKEN_FILE` token contract
+- forge-aware token mapping for GoReleaser
+- release notes generation from `NEWS.md`
+- optional release body patching after publish
+- safe `publish-tag` releases from a clean clone of the exact tag
 
-## Values
+Consumer repositories install the CLI once and run `release-tools` directly from
+the project root. They should not copy release helper scripts or use this repo's
+Makefile as a release frontend.
 
-- one small command installed in the user's `PATH`
-- minimal release logic in consuming repositories
-- safe local and CI publishing paths
-- clear separation between shared behavior and project-specific configuration
-- small CLI commands that are easy for humans, CI, and agents to run
+## Requirements
 
-Install `release-tools` once into a directory on `PATH`, then run it directly
-from each project repository.
+Consumer repositories need:
 
-The CLI validates required release configuration before running release commands.
-Consumers should set at least `RELEASE_PROJECT` and `RELEASE_OWNER`, either in
-`.release-tools.env` or the environment. Tag publishing also requires `VERSION`
-or a positional tag.
+- the `release-tools` binary installed on `PATH`
+- GoReleaser available on `PATH` or through `GORELEASER_BIN`
+- a repo-local `.release-tools.env`
+- a project-owned `.goreleaser.yaml`
+- `NEWS.md` when `RELEASE_NOTES_MODE=news-md`
 
-## Consumer Quickstart
+Maintainers of this repository also need Go `1.26`, Make, and Podman for the
+container verification path.
 
-Install the CLI:
+## Installation
+
+Download the matching release binary from Codeberg and place it in a directory on
+`PATH`.
+
+Linux amd64 example:
 
 ```bash
+RELEASE_TOOLS_VERSION=vX.Y.Z
+version="${RELEASE_TOOLS_VERSION#v}"
+
 mkdir -p "$HOME/.local/bin"
 curl -fsSL -o "$HOME/.local/bin/release-tools" \
-  "https://codeberg.org/rch/release-tools/releases/download/v3.1.0/release-tools_3.1.0_linux_amd64"
+  "https://codeberg.org/rch/release-tools/releases/download/${RELEASE_TOOLS_VERSION}/release-tools_${version}_linux_amd64"
 chmod +x "$HOME/.local/bin/release-tools"
 ```
 
-Use the matching binary for your OS and architecture:
+Published binary names use this shape:
 
-- `release-tools_3.1.0_linux_amd64`
-- `release-tools_3.1.0_linux_arm64`
-- `release-tools_3.1.0_darwin_amd64`
-- `release-tools_3.1.0_darwin_arm64`
+```text
+release-tools_<version>_<os>_<arch>
+```
 
-In a project repository:
+Supported assets:
 
-1. Copy `examples/.release-tools.env` to `.release-tools.env` and set the project values.
-2. Add or update the project's `.goreleaser.yaml` and `NEWS.md`.
-3. Run `release-tools` from the project root.
+- `release-tools_X.Y.Z_linux_amd64`
+- `release-tools_X.Y.Z_linux_arm64`
+- `release-tools_X.Y.Z_darwin_amd64`
+- `release-tools_X.Y.Z_darwin_arm64`
+- `checksums.txt`
 
-Minimal `.release-tools.env` shape:
+## Quick Start
+
+Add `.release-tools.env` to the repository that will use `release-tools`:
 
 ```sh
 RELEASE_PROJECT=mycli
@@ -89,11 +94,9 @@ RELEASE_BODY_MODE=patch
 GORELEASER_CONFIG=.goreleaser.yaml
 ```
 
-Supported `RELEASE_FORGE` values are `codeberg`, `gitea`, `forgejo`, `github`,
-and `gitlab`. `codeberg`, `gitea`, and `forgejo` use Codeberg-compatible
-defaults unless the project sets `RELEASE_API_URL` and `RELEASE_DOWNLOAD_URL`.
+The consuming repository also owns its `.goreleaser.yaml` and `NEWS.md`.
 
-Common local verification flow:
+Run local checks from the consumer repository root:
 
 ```bash
 release-tools version
@@ -103,43 +106,144 @@ release-tools snapshot
 release-tools notes v1.2.3
 ```
 
-Publishing requires `RELEASE_TOKEN`, the native token variable for the selected
-forge, or `RELEASE_TOKEN_FILE` pointing at a local token file, plus an existing
-tag:
+Publish an existing tag with an available token:
 
 ```bash
 release-tools publish-tag v1.2.3
 ```
 
-See `docs/usage.md` for the full integration contract.
+Publishing requires `RELEASE_TOKEN`, the native GoReleaser token variable for
+the selected forge, or `RELEASE_TOKEN_FILE` pointing at a local token file.
 
-This repository also ships ready-to-copy consumer examples for installed CLI
-usage:
+## Commands
 
-- `docs/README.md`
-- `examples/.release-tools.env`
-- `examples/forgejo-release.yml`
+| Command | Purpose |
+| --- | --- |
+| `release-tools version` | Print the installed `release-tools` version. |
+| `release-tools doctor` | Validate release config and required tools. |
+| `release-tools check` | Run `goreleaser check`. |
+| `release-tools snapshot` | Run a local snapshot build without publishing. |
+| `release-tools publish` | Publish the current tag from the current worktree. |
+| `release-tools publish-tag vX.Y.Z` | Publish a specific existing tag from a clean clone. |
+| `release-tools notes vX.Y.Z` | Generate release notes for a tag. |
+| `release-tools completion <shell>` | Generate shell completions. |
 
-See these docs:
+Supported completion shells are `bash`, `zsh`, `fish`, and `powershell`:
 
-- `docs/README.md` for the docs index
-- `docs/usage.md` for the integration contract and consumer setup guide
-- `docs/agent-release-flow.md` for the reusable release pattern and rationale
+```bash
+release-tools completion bash
+release-tools completion zsh
+release-tools completion fish
+release-tools completion powershell
+```
+
+## Configuration
+
+Supported `RELEASE_FORGE` values are:
+
+- `codeberg`
+- `gitea`
+- `forgejo`
+- `github`
+- `gitlab`
+
+`codeberg`, `gitea`, and `forgejo` use Codeberg-compatible defaults unless
+`RELEASE_API_URL` is set explicitly.
+
+Required for release commands:
+
+- `RELEASE_PROJECT`
+- `RELEASE_OWNER`
+
+Additionally required for `publish-tag`:
+
+- `VERSION` or a positional tag argument such as `v1.2.3`
+
+For the full public config contract, token resolution rules, and consumer setup
+guide, see [`docs/usage.md`](docs/usage.md).
+
+## Examples And Docs
+
+Ready-to-copy consumer starting points:
+
+- [`examples/.release-tools.env`](examples/.release-tools.env)
+- [`examples/forgejo-release.yml`](examples/forgejo-release.yml)
+
+Documentation:
+
+- [`docs/README.md`](docs/README.md): docs index
+- [`docs/usage.md`](docs/usage.md): consumer integration contract
+- [`docs/agent-release-flow.md`](docs/agent-release-flow.md): release-flow
+  rationale and maintainer/agent notes
 
 ## Maintainer Workflow
 
-This repository includes a root `Makefile` for maintainers and agents working on
-`release-tools` itself. It is not part of the consumer integration contract.
+The root `Makefile` is for maintainers working on this repository. It is not
+part of the consumer integration contract.
 
-Use these targets instead of invoking lower-level scripts directly:
+Common maintainer commands:
 
 ```bash
 make verify
 make container-test
+make build
 make check
 make snapshot
 make clean
 ```
 
-Consumers should install `release-tools` into `PATH` and run that command from
-their project root.
+## Testing
+
+Run the local verification suite:
+
+```bash
+make verify
+```
+
+Run the same checks inside the dev container:
+
+```bash
+make container-test
+```
+
+For focused CLI error-message checks, use:
+
+```bash
+scripts/test-errors
+```
+
+## Self-Release
+
+`release-tools` releases itself with the `release-tools` CLI. The Makefile is
+only used for verification and for building a current local binary when the
+globally installed CLI may not include unreleased behavior yet.
+
+Before tagging, run verification and update `NEWS.md` and `CHANGELOG.md` from
+`Unreleased` to the release version:
+
+```bash
+make verify
+make container-test
+```
+
+After committing and pushing the release prep, create and push the tag:
+
+```bash
+git tag -a vX.Y.Z -m "vX.Y.Z"
+git push cb main vX.Y.Z
+```
+
+Build the current CLI and publish from the exact tag:
+
+```bash
+make build
+PATH="$PWD/.tmp:$PATH" release-tools publish-tag vX.Y.Z
+```
+
+This keeps `release-tools` as the publishing frontend while avoiding reliance on
+an older installed binary during self-release bootstrapping.
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for
+details.

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,38 +14,10 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/charmbracelet/fang"
+	"github.com/spf13/cobra"
 )
-
-const usageText = `Usage: release-tools <command> [args]
-
-Commands:
-  help                  Show this help text
-  version               Show release-tools version
-  tools-check           Check required local tools
-  doctor                Check release-tools configuration
-  check                 Validate GoReleaser configuration
-  snapshot              Build a local snapshot release without publishing
-  publish               Publish the current tag
-  publish-tag [VERSION] Publish a specific existing tag from a clean clone
-  notes [VERSION]       Generate release notes for VERSION or the current tag
-
-Environment:
-  RELEASE_CONFIG_FILE   Config file, defaults to .release-tools.env
-  RELEASE_PROJECT       Project name used by release scripts
-  RELEASE_FORGE         Forge type: codeberg, gitea, forgejo, github, or gitlab
-  RELEASE_OWNER         Forge owner or namespace
-  RELEASE_REPO          Repository name, defaults to RELEASE_PROJECT
-  RELEASE_API_URL       Forge API URL, defaults by RELEASE_FORGE
-  RELEASE_DOWNLOAD_URL  Forge download URL, defaults by RELEASE_FORGE
-  RELEASE_NOTES_SOURCE  Release notes source, defaults to NEWS.md
-  RELEASE_NOTES_MODE    Release notes mode, defaults to news-md
-  RELEASE_BODY_MODE     Release body mode, defaults to none
-  GORELEASER_CONFIG     GoReleaser config path, defaults to .goreleaser.yaml
-  RELEASE_REQUIRE_GO    Set to 1 when a consumer release requires Go
-  RELEASE_TOKEN         Release publish token; maps to forge-native token env
-  RELEASE_TOKEN_FILE    File containing release publish token
-  VERSION               Tag/version for publish-tag and notes
-`
 
 var allowedConfigKeys = map[string]bool{
 	"RELEASE_FORGE":        true,
@@ -52,7 +25,6 @@ var allowedConfigKeys = map[string]bool{
 	"RELEASE_OWNER":        true,
 	"RELEASE_REPO":         true,
 	"RELEASE_API_URL":      true,
-	"RELEASE_DOWNLOAD_URL": true,
 	"RELEASE_NOTES_SOURCE": true,
 	"RELEASE_NOTES_MODE":   true,
 	"RELEASE_BODY_MODE":    true,
@@ -63,6 +35,8 @@ var allowedConfigKeys = map[string]bool{
 }
 
 type forgeKind string
+
+type appFactory func() (*app, error)
 
 var releaseToolsVersion = "dev"
 
@@ -83,22 +57,32 @@ type app struct {
 }
 
 func main() {
-	a, err := newApp(os.Environ(), os.Stdout, os.Stderr)
-	if err != nil {
-		fatal(err)
-	}
-	if err := a.run(os.Args[1:]); err != nil {
-		fatal(err)
+	if err := executeCLI(context.Background(), os.Environ(), os.Stdout, os.Stderr, os.Args[1:]); err != nil {
+		exitCode := 1
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			exitCode = exitErr.ExitCode()
+		}
+		os.Exit(exitCode)
 	}
 }
 
-func fatal(err error) {
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		os.Exit(exitErr.ExitCode())
-	}
-	fmt.Fprintf(os.Stderr, "[ERROR] %s\n", err)
-	os.Exit(1)
+func executeCLI(ctx context.Context, environ []string, stdout, stderr io.Writer, args []string) error {
+	cmd := newRootCommand(func() (*app, error) {
+		return newApp(environ, stdout, stderr)
+	}, stdout, stderr)
+	cmd.SetArgs(args)
+	return fang.Execute(
+		ctx,
+		cmd,
+		fang.WithVersion(releaseToolsVersion),
+		fang.WithErrorHandler(errorHandler),
+		fang.WithColorSchemeFunc(fang.AnsiColorScheme),
+	)
+}
+
+func errorHandler(w io.Writer, _ fang.Styles, err error) {
+	fmt.Fprintf(w, "[ERROR] %s\n", err)
 }
 
 func newApp(environ []string, stdout, stderr io.Writer) (*app, error) {
@@ -222,85 +206,201 @@ func stripSimpleQuotes(value string) string {
 }
 
 func (a *app) run(args []string) error {
-	command := "help"
-	if len(args) > 0 {
-		command = args[0]
-		args = args[1:]
-	}
+	cmd := newRootCommand(func() (*app, error) { return a, nil }, a.stdout, a.stderr)
+	cmd.SetArgs(args)
+	return cmd.Execute()
+}
 
-	switch command {
-	case "help", "-h", "--help":
-		if err := requireNoArgs("help", args); err != nil {
-			return err
-		}
-		fmt.Fprint(a.stdout, usageText)
-		return nil
-	case "version", "-v", "--version":
-		if err := requireNoArgs("version", args); err != nil {
-			return err
-		}
-		fmt.Fprintf(a.stdout, "release-tools %s\n", releaseToolsVersion)
-		return nil
-	case "tools-check":
-		if err := requireNoArgs("tools-check", args); err != nil {
-			return err
-		}
-		return a.ensureTools()
-	case "doctor":
-		if err := requireNoArgs("doctor", args); err != nil {
-			return err
-		}
-		return a.doctor()
-	case "check":
-		if err := requireNoArgs("check", args); err != nil {
-			return err
-		}
-		if err := a.requireReleaseVars(); err != nil {
-			return err
-		}
-		return a.runGoreleaser("check")
-	case "snapshot":
-		if err := requireNoArgs("snapshot", args); err != nil {
-			return err
-		}
-		if err := a.requireReleaseVars(); err != nil {
-			return err
-		}
-		return a.runGoreleaser("release", "--snapshot", "--skip=publish", "--clean")
-	case "publish":
-		if err := requireNoArgs("publish", args); err != nil {
-			return err
-		}
-		if err := a.requireReleaseVars(); err != nil {
-			return err
-		}
-		return a.publish()
-	case "publish-tag":
-		if err := a.requireReleaseVars(); err != nil {
-			return err
-		}
-		version, err := a.requireVersionArgOrEnv("publish-tag", args)
-		if err != nil {
-			return err
-		}
-		return a.publishTag(version)
-	case "notes":
-		if err := a.requireReleaseVars(); err != nil {
-			return err
-		}
-		version, err := a.optionalVersionArg("notes", args)
-		if err != nil {
-			return err
-		}
-		notesFile, err := a.generateNotes(version)
-		if err != nil {
-			return err
-		}
-		fmt.Fprintln(a.stdout, notesFile)
-		return nil
-	default:
-		fmt.Fprint(a.stderr, usageText)
-		return fmt.Errorf("unknown command: %s", command)
+func newRootCommand(factory appFactory, stdout, stderr io.Writer) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "release-tools",
+		Short: "Standardized GoReleaser workflow helper",
+		Long: `release-tools is a thin, opinionated layer that standardizes release
+workflows for repositories that use GoReleaser as the build and publishing
+engine.`,
+		Example: `  release-tools version
+  release-tools doctor
+  release-tools check
+  release-tools snapshot
+  release-tools publish-tag v1.2.3`,
+		Version:           releaseToolsVersion,
+		SilenceUsage:      true,
+		SilenceErrors:     true,
+		ValidArgsFunction: cobra.NoFileCompletions,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := requireNoArgs("release-tools", args); err != nil {
+				return err
+			}
+			return cmd.Help()
+		},
+	}
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	cmd.SetVersionTemplate("release-tools {{.Version}}\n")
+
+	cmd.AddCommand(
+		newVersionCommand(stdout),
+		newToolsCheckCommand(factory),
+		newDoctorCommand(factory),
+		newCheckCommand(factory),
+		newSnapshotCommand(factory),
+		newPublishCommand(factory),
+		newPublishTagCommand(factory),
+		newNotesCommand(factory, stdout),
+	)
+	return cmd
+}
+
+func newVersionCommand(stdout io.Writer) *cobra.Command {
+	return &cobra.Command{
+		Use:               "version",
+		Short:             "Show release-tools version",
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
+		RunE: func(*cobra.Command, []string) error {
+			fmt.Fprintf(stdout, "release-tools %s\n", releaseToolsVersion)
+			return nil
+		},
+	}
+}
+
+func newToolsCheckCommand(factory appFactory) *cobra.Command {
+	return &cobra.Command{
+		Use:               "tools-check",
+		Short:             "Check required local tools",
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
+		RunE: func(*cobra.Command, []string) error {
+			a, err := factory()
+			if err != nil {
+				return err
+			}
+			return a.ensureTools()
+		},
+	}
+}
+
+func newDoctorCommand(factory appFactory) *cobra.Command {
+	return &cobra.Command{
+		Use:               "doctor",
+		Short:             "Check release-tools configuration",
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
+		RunE: func(*cobra.Command, []string) error {
+			a, err := factory()
+			if err != nil {
+				return err
+			}
+			return a.doctor()
+		},
+	}
+}
+
+func newCheckCommand(factory appFactory) *cobra.Command {
+	return &cobra.Command{
+		Use:               "check",
+		Short:             "Validate GoReleaser configuration",
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
+		RunE: func(*cobra.Command, []string) error {
+			a, err := factory()
+			if err != nil {
+				return err
+			}
+			if err := a.requireReleaseVars(); err != nil {
+				return err
+			}
+			return a.runGoreleaser("check")
+		},
+	}
+}
+
+func newSnapshotCommand(factory appFactory) *cobra.Command {
+	return &cobra.Command{
+		Use:               "snapshot",
+		Short:             "Build a local snapshot release without publishing",
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
+		RunE: func(*cobra.Command, []string) error {
+			a, err := factory()
+			if err != nil {
+				return err
+			}
+			if err := a.requireReleaseVars(); err != nil {
+				return err
+			}
+			return a.runGoreleaser("release", "--snapshot", "--skip=publish", "--clean")
+		},
+	}
+}
+
+func newPublishCommand(factory appFactory) *cobra.Command {
+	return &cobra.Command{
+		Use:               "publish",
+		Short:             "Publish the current tag",
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
+		RunE: func(*cobra.Command, []string) error {
+			a, err := factory()
+			if err != nil {
+				return err
+			}
+			if err := a.requireReleaseVars(); err != nil {
+				return err
+			}
+			return a.publish()
+		},
+	}
+}
+
+func newPublishTagCommand(factory appFactory) *cobra.Command {
+	return &cobra.Command{
+		Use:               "publish-tag [VERSION]",
+		Short:             "Publish a specific existing tag from a clean clone",
+		Args:              cobra.ArbitraryArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
+		RunE: func(_ *cobra.Command, args []string) error {
+			a, err := factory()
+			if err != nil {
+				return err
+			}
+			if err := a.requireReleaseVars(); err != nil {
+				return err
+			}
+			version, err := a.requireVersionArgOrEnv("publish-tag", args)
+			if err != nil {
+				return err
+			}
+			return a.publishTag(version)
+		},
+	}
+}
+
+func newNotesCommand(factory appFactory, stdout io.Writer) *cobra.Command {
+	return &cobra.Command{
+		Use:               "notes [VERSION]",
+		Short:             "Generate release notes for VERSION or the current tag",
+		Args:              cobra.ArbitraryArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
+		RunE: func(_ *cobra.Command, args []string) error {
+			a, err := factory()
+			if err != nil {
+				return err
+			}
+			if err := a.requireReleaseVars(); err != nil {
+				return err
+			}
+			version, err := a.optionalVersionArg("notes", args)
+			if err != nil {
+				return err
+			}
+			notesFile, err := a.generateNotes(version)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintln(stdout, notesFile)
+			return nil
+		},
 	}
 }
 
@@ -647,10 +747,6 @@ func (a *app) resolveTag(version string) (string, error) {
 	if value := a.env["VERSION"]; value != "" {
 		return value, nil
 	}
-	if value := a.env["TAG"]; value != "" {
-		return value, nil
-	}
-
 	cmd := exec.Command("git", "-C", a.repoRoot, "describe", "--tags", "--exact-match")
 	output, err := cmd.Output()
 	if err == nil {
@@ -658,7 +754,7 @@ func (a *app) resolveTag(version string) (string, error) {
 			return tag, nil
 		}
 	}
-	return "", errors.New("VERSION or TAG is required when the current commit is not an exact tag")
+	return "", errors.New("VERSION is required when the current commit is not an exact tag")
 }
 
 func extractNewsSection(content, tag string) string {
@@ -974,24 +1070,6 @@ func (a *app) releaseAPIURL() string {
 		return "https://gitlab.com/api/v4"
 	default:
 		return "https://codeberg.org/api/v1"
-	}
-}
-
-func (a *app) releaseDownloadURL() string {
-	if downloadURL := a.env["RELEASE_DOWNLOAD_URL"]; downloadURL != "" {
-		return downloadURL
-	}
-	forge, err := a.releaseForge()
-	if err != nil {
-		return "https://codeberg.org"
-	}
-	switch forge {
-	case forgeGitHub:
-		return "https://github.com"
-	case forgeGitLab:
-		return "https://gitlab.com"
-	default:
-		return "https://codeberg.org"
 	}
 }
 

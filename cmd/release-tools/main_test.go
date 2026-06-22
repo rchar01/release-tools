@@ -84,6 +84,46 @@ func TestVersionCommandPrintsReleaseToolsVersion(t *testing.T) {
 	}
 }
 
+func TestHelpVersionAndCompletionDoNotLoadConfig(t *testing.T) {
+	previous := releaseToolsVersion
+	releaseToolsVersion = "test-version"
+	t.Cleanup(func() { releaseToolsVersion = previous })
+
+	for _, args := range [][]string{
+		{"--help"},
+		{"help"},
+		{"-v"},
+		{"--version"},
+		{"version"},
+		{"completion", "bash"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			environ := []string{"RELEASE_CONFIG_FILE=/missing/release-tools.env"}
+			if err := executeCLI(t.Context(), environ, &stdout, &stderr, args); err != nil {
+				t.Fatalf("executeCLI() error = %v, stderr = %q", err, stderr.String())
+			}
+			if stdout.Len() == 0 {
+				t.Fatal("expected command output")
+			}
+		})
+	}
+}
+
+func TestUnknownCommandReportsError(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := executeCLI(t.Context(), nil, &stdout, &stderr, []string{"wat"})
+	if err == nil {
+		t.Fatal("expected unknown command error")
+	}
+	if !strings.Contains(stderr.String(), "[ERROR]") {
+		t.Fatalf("stderr = %q, want [ERROR]", stderr.String())
+	}
+	if !strings.Contains(err.Error(), "unknown command") {
+		t.Fatalf("error = %q, want unknown command", err.Error())
+	}
+}
+
 func TestParseGoreleaserVersion(t *testing.T) {
 	output := `goreleaser: Release engineering, simplified.
 
@@ -140,9 +180,6 @@ func TestReleaseForgeAliasesUseGiteaCompatibility(t *testing.T) {
 			}
 			if got := a.releaseAPIURL(); got != "https://codeberg.org/api/v1" {
 				t.Fatalf("releaseAPIURL() = %q, want Codeberg API URL", got)
-			}
-			if got := a.releaseDownloadURL(); got != "https://codeberg.org" {
-				t.Fatalf("releaseDownloadURL() = %q, want Codeberg URL", got)
 			}
 		})
 	}

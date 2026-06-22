@@ -7,6 +7,8 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-06-22
+
 ### Added
 
 - added `release-tools version` and `release-tools --version` for reporting the
@@ -14,6 +16,19 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - added resolved GoReleaser version output to `release-tools doctor`
 - added first-class docs and tests for `RELEASE_FORGE=codeberg` as a
   Gitea-compatible forge value
+- migrated command dispatch to Cobra and Fang for styled help, version flags,
+  and generated shell completions
+- refreshed the README as a concise landing page with placeholder release
+  versions
+- documented the `release-tools` self-release procedure for maintainers and
+  agents
+
+### Removed
+
+- removed the unused `RELEASE_DOWNLOAD_URL` config key from the public config
+  contract
+- removed the undocumented `TAG` environment fallback; use `VERSION` or a
+  positional tag argument instead
 
 ## [3.1.0] - 2026-06-12
 

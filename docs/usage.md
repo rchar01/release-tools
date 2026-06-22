@@ -86,7 +86,7 @@ Supported `RELEASE_FORGE` values:
 - `gitlab`
 
 `codeberg`, `gitea`, and `forgejo` use Codeberg-compatible defaults unless
-`RELEASE_API_URL` and `RELEASE_DOWNLOAD_URL` are set explicitly.
+`RELEASE_API_URL` is set explicitly.
 
 ## 3. Review Supported Variables
 
@@ -97,7 +97,6 @@ Supported `.release-tools.env` keys:
 - `RELEASE_OWNER`
 - `RELEASE_REPO`
 - `RELEASE_API_URL`
-- `RELEASE_DOWNLOAD_URL`
 - `RELEASE_NOTES_SOURCE`
 - `RELEASE_NOTES_MODE`
 - `RELEASE_BODY_MODE`
@@ -149,6 +148,7 @@ The config should be compatible with these CLI commands:
 - `release-tools publish`
 - `release-tools publish-tag vX.Y.Z`
 - `release-tools notes vX.Y.Z`
+- `release-tools completion bash|zsh|fish|powershell`
 
 Recommended for Go projects:
 
@@ -246,6 +246,19 @@ release-tools publish
 release-tools publish-tag v3.1.0
 release-tools notes v3.1.0
 ```
+
+The CLI also generates shell completion scripts:
+
+```bash
+release-tools completion bash
+release-tools completion zsh
+release-tools completion fish
+release-tools completion powershell
+```
+
+Install or source the generated script according to your shell's completion
+setup. Completion generation, `help`, and `version` do not require a release
+config file.
 
 `release-tools publish-tag` publishes from a clean full-history clone detached at
 the exact repo tag. Keeping tag history available lets GoReleaser discover the

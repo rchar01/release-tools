@@ -86,7 +86,7 @@ expect_error '[ERROR] release notes source not found:' \
 expect_error '[ERROR] unsupported RELEASE_FORGE: svn' \
 	env RELEASE_REPO_ROOT="$TMP_DIR/invalid-forge" GORELEASER_BIN=/bin/true "$RELEASE_TOOLS_BIN" doctor
 
-expect_error '[ERROR] VERSION or TAG is required when the current commit is not an exact tag' \
-	env -u VERSION -u TAG RELEASE_REPO_ROOT="$TMP_DIR/no-tag" "$RELEASE_TOOLS_BIN" notes
+expect_error '[ERROR] VERSION is required when the current commit is not an exact tag' \
+	env -u VERSION RELEASE_REPO_ROOT="$TMP_DIR/no-tag" "$RELEASE_TOOLS_BIN" notes
 
 rm -rf "$TMP_DIR"

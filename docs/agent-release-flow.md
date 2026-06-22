@@ -75,6 +75,7 @@ Benefits:
 The installed `release-tools` binary provides the stable command surface. Its Go
 implementation does three useful things when invoking GoReleaser:
 
+- uses Cobra and Fang for help, version flags, and generated completions
 - resolves the GoReleaser binary from common install locations
 - reports the installed `release-tools` version and resolved GoReleaser version
   in `doctor`
@@ -102,8 +103,8 @@ This is useful when multiple repos depend on the same CLI or toolkit.
 
 ### CLI-Only Public Entrypoint
 
-`release-tools` v2 intentionally removes the Make wrapper from the public
-contract.
+`release-tools` intentionally keeps the installed CLI as the only public
+command surface.
 
 Reason:
 
@@ -217,6 +218,14 @@ make verify
 The root `Makefile` is maintainer-only convenience for this repository. Consumer
 repositories should install `release-tools` into `PATH` and call that command
 from the project root.
+
+When a repository uses its own CLI to release itself, build the current CLI
+before publishing and put that build first on `PATH`. Publishing should still go
+through the CLI rather than through a Make publish target:
+
+```bash
+PATH="$PWD/.tmp:$PATH" release-tools publish-tag vX.Y.Z
+```
 
 `scripts/test-errors` verifies the most important CLI failure messages,
 including missing release config, missing tag, invalid `GORELEASER_BIN`, and

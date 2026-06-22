@@ -2,13 +2,19 @@
 
 This file gives a short, release-oriented view of what changed between versions.
 
-## Unreleased
+## v3.2.0 - 2026-06-22
 
 - add `release-tools version` and `release-tools --version` for reporting the
   installed release-tools version
 - report the resolved GoReleaser version in `release-tools doctor`
 - document and test `RELEASE_FORGE=codeberg` as a first-class Gitea-compatible
   forge value
+- migrate command dispatch to Cobra and Fang for styled help, version flags,
+  and generated shell completions
+- refresh the README as a concise landing page with placeholder release versions
+- document the `release-tools` self-release procedure for maintainers and agents
+- remove the unused `RELEASE_DOWNLOAD_URL` config key and undocumented `TAG`
+  fallback from active release behavior
 
 ## v3.1.0 - 2026-06-12
 
