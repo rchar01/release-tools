@@ -54,10 +54,176 @@ func TestExtractNewsSection(t *testing.T) {
 - previous
 `
 
-	got := extractNewsSection(content, "v3.0.0")
+	got := extractNewsSection(content, "v3.0.0", "news-md")
 	want := "- add Go CLI\n- keep command compatibility"
 	if got != want {
 		t.Fatalf("section = %q, want %q", got, want)
+	}
+}
+
+func TestGenerateMarkdownNewsWritesExactReleaseNotes(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "NEWS.md"), `# News
+
+## v1.2.3 - 2026-07-02
+
+- add Markdown release note
+- keep existing behavior
+
+## v1.2.2 - 2026-06-01
+
+- previous release
+`)
+
+	a := &app{
+		repoRoot: dir,
+		tmpDir:   filepath.Join(dir, ".tmp"),
+		env: map[string]string{
+			"RELEASE_NOTES_MODE":   "news-md",
+			"RELEASE_NOTES_SOURCE": "NEWS.md",
+		},
+	}
+	notesFile, err := a.generateNotes("v1.2.3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(notesFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "- add Markdown release note\n- keep existing behavior\n"
+	if got := string(content); got != want {
+		t.Fatalf("generated notes = %q, want %q", got, want)
+	}
+}
+
+func TestGenerateGNUNewsWritesExactReleaseNotes(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "NEWS.md"), `release-tools NEWS -- history of user-visible changes.
+
+* Noteworthy changes in release 1.2.3 (2026-07-02)
+
+** New features
+
+  - Add GNU release note parsing.
+  - Keep Markdown release notes unchanged.
+
+* Noteworthy changes in release 1.2.2 (2026-06-01)
+
+** New features
+
+  - Previous release.
+`)
+
+	a := &app{
+		repoRoot: dir,
+		tmpDir:   filepath.Join(dir, ".tmp"),
+		env: map[string]string{
+			"RELEASE_NOTES_MODE":   "gnu-news",
+			"RELEASE_NOTES_SOURCE": "NEWS.md",
+		},
+	}
+	notesFile, err := a.generateNotes("v1.2.3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(notesFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "** New features\n\n  - Add GNU release note parsing.\n  - Keep Markdown release notes unchanged.\n"
+	if got := string(content); got != want {
+		t.Fatalf("generated notes = %q, want %q", got, want)
+	}
+}
+
+func TestGenerateGNUNewsMatchesVPrefixedHeading(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "NEWS.md"), `release-tools NEWS -- history of user-visible changes.
+
+* Noteworthy changes in release v1.2.3 (2026-07-02)
+
+** New features
+
+  - Match GNU headings with v-prefixed versions.
+
+* Noteworthy changes in release v1.2.2 (2026-06-01)
+
+** New features
+
+  - Previous release.
+`)
+
+	a := &app{
+		repoRoot: dir,
+		tmpDir:   filepath.Join(dir, ".tmp"),
+		env: map[string]string{
+			"RELEASE_NOTES_MODE":   "gnu-news",
+			"RELEASE_NOTES_SOURCE": "NEWS.md",
+		},
+	}
+	notesFile, err := a.generateNotes("v1.2.3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(notesFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "** New features\n\n  - Match GNU headings with v-prefixed versions.\n"
+	if got := string(content); got != want {
+		t.Fatalf("generated notes = %q, want %q", got, want)
+	}
+}
+
+func TestExtractGNUNewsSectionMatchesSupportedHeadings(t *testing.T) {
+	content := strings.Join([]string{
+		"* Noteworthy changes in release v1.2.3 (2026-07-02)",
+		"",
+		"** New features",
+		"",
+		"  - Add GNU NEWS parsing.",
+		"",
+		"* Noteworthy changes in release v1.2.2 (2026-06-01)",
+		"",
+		"  - Previous.",
+		"",
+	}, "\r\n")
+	got := extractNewsSection(content, "1.2.3", "gnu-news")
+	want := "** New features\n\n  - Add GNU NEWS parsing."
+	if got != want {
+		t.Fatalf("section = %q, want %q", got, want)
+	}
+
+	content = strings.Replace(content, "release v1.2.3", "release 1.2.3", 1)
+	got = extractNewsSection(content, "v1.2.3", "gnu-news")
+	if got != want {
+		t.Fatalf("section without v prefix = %q, want %q", got, want)
+	}
+}
+
+func TestDoctorAcceptsGNUNewsMode(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".goreleaser.yaml"), "version: 2\n")
+	writeFile(t, filepath.Join(dir, "NEWS.md"), "* Noteworthy changes in release 1.2.3 (2026-07-02)\n")
+
+	a := &app{
+		repoRoot: dir,
+		env: map[string]string{
+			"RELEASE_PROJECT":      "demo",
+			"RELEASE_OWNER":        "owner",
+			"RELEASE_NOTES_MODE":   "gnu-news",
+			"GORELEASER_CONFIG":    ".goreleaser.yaml",
+			"GORELEASER_BIN":       "/bin/true",
+			"RELEASE_REQUIRE_GO":   "0",
+			"RELEASE_BODY_MODE":    "none",
+			"RELEASE_NOTES_SOURCE": "NEWS.md",
+		},
+		stdout: ioDiscard(),
+		stderr: ioDiscard(),
+	}
+	if err := a.doctor(); err != nil {
+		t.Fatal(err)
 	}
 }
 

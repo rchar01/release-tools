@@ -7,6 +7,15 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [3.3.0] - 2026-07-02
+
+### Added
+
+- added `RELEASE_NOTES_MODE=gnu-news` for extracting release notes from
+  GNU-style `NEWS` files
+- added exact generated release-note file tests for both `news-md` and
+  `gnu-news` modes
+
 ## [3.2.0] - 2026-06-22
 
 ### Added

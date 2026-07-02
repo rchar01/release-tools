@@ -36,7 +36,7 @@ Linux amd64 example:
 ```bash
 mkdir -p "$HOME/.local/bin"
 curl -fsSL -o "$HOME/.local/bin/release-tools" \
-  "https://codeberg.org/rch/release-tools/releases/download/v3.1.0/release-tools_3.1.0_linux_amd64"
+  "https://codeberg.org/rch/release-tools/releases/download/v3.3.0/release-tools_3.3.0_linux_amd64"
 chmod +x "$HOME/.local/bin/release-tools"
 ```
 
@@ -48,15 +48,15 @@ release-tools_<version>_<os>_<arch>
 
 Supported release binaries:
 
-- `release-tools_3.1.0_linux_amd64`
-- `release-tools_3.1.0_linux_arm64`
-- `release-tools_3.1.0_darwin_amd64`
-- `release-tools_3.1.0_darwin_arm64`
+- `release-tools_3.3.0_linux_amd64`
+- `release-tools_3.3.0_linux_arm64`
+- `release-tools_3.3.0_darwin_amd64`
+- `release-tools_3.3.0_darwin_arm64`
 
 For system-wide installation, use a privileged install directory instead:
 
 ```bash
-sudo install -m 0755 release-tools_3.1.0_linux_amd64 /usr/local/bin/release-tools
+sudo install -m 0755 release-tools_3.3.0_linux_amd64 /usr/local/bin/release-tools
 ```
 
 ## 2. Define Release Tools Config
@@ -123,7 +123,7 @@ Required for release commands:
 
 Additionally required for `release-tools publish-tag`:
 
-- `VERSION` or a positional tag argument such as `v3.1.0`
+- `VERSION` or a positional tag argument such as `v3.3.0`
 
 ## 4. Add GoReleaser Configuration
 
@@ -164,8 +164,13 @@ requires it.
 
 ## 5. Add A Release Notes Source
 
-If the project uses `RELEASE_NOTES_MODE=news-md`, add `NEWS.md` with sections
-matching release tags.
+If the project generates release notes from `NEWS.md`, choose one of the
+supported modes:
+
+- `RELEASE_NOTES_MODE=news-md`
+- `RELEASE_NOTES_MODE=gnu-news`
+
+Use `news-md` for Markdown sections matching release tags.
 
 Example shape:
 
@@ -183,6 +188,30 @@ Example shape:
 Generated release notes are release body text only. The toolkit does not add a
 top-level Markdown heading for the tag because the forge already renders the
 release title separately.
+
+Use `gnu-news` for the GNU-style subset used by this toolkit:
+
+```text
+release-tools NEWS -- history of user-visible changes.
+
+* Noteworthy changes in release 2.0.0 (2026-06-11)
+
+** New features
+
+  - Switch to the CLI-only release workflow.
+  - Add self-release support.
+
+* Noteworthy changes in release 1.2.1 (2026-06-01)
+
+** Documentation
+
+  - Clarify the release-tools value proposition.
+```
+
+The `gnu-news` parser matches either `X.Y.Z` or `vX.Y.Z` in the release
+heading, stops at the next GNU release heading, and preserves the body below the
+heading in the final release notes file. That includes `**` subsection headings
+and indented bullets.
 
 ## 6. Add CI Release Workflow
 
@@ -243,8 +272,8 @@ release-tools doctor
 release-tools check
 release-tools snapshot
 release-tools publish
-release-tools publish-tag v3.1.0
-release-tools notes v3.1.0
+release-tools publish-tag v3.3.0
+release-tools notes v3.3.0
 ```
 
 The CLI also generates shell completion scripts:
@@ -319,7 +348,7 @@ actually publishing.
 
 Older project tags can still fail if the tagged source tree does not contain the
 project files expected by the current toolkit, such as `.goreleaser.yaml` or
-`NEWS.md` when `RELEASE_NOTES_MODE=news-md` is used.
+`NEWS.md` when `RELEASE_NOTES_MODE=news-md` or `gnu-news` is used.
 
 ## 12. Recommended Consumer Template
 

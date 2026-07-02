@@ -462,7 +462,7 @@ func (a *app) doctor() error {
 	}
 
 	switch notesMode {
-	case "news-md":
+	case "news-md", "gnu-news":
 		if _, err := os.Stat(filepath.Join(a.repoRoot, notesSource)); err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				return fmt.Errorf("release notes source not found: %s", filepath.Join(a.repoRoot, notesSource))
@@ -713,7 +713,7 @@ func (a *app) generateNotes(version string) (string, error) {
 	}
 
 	switch notesMode {
-	case "news-md":
+	case "news-md", "gnu-news":
 		newsFile := filepath.Join(a.repoRoot, notesSource)
 		content, err := os.ReadFile(newsFile)
 		if err != nil {
@@ -722,7 +722,7 @@ func (a *app) generateNotes(version string) (string, error) {
 			}
 			return "", err
 		}
-		section := extractNewsSection(string(content), tag)
+		section := extractNewsSection(string(content), tag, notesMode)
 		if section == "" {
 			section = fmt.Sprintf("- No summary entry found in `%s`.\n", notesSource)
 		} else if !strings.HasSuffix(section, "\n") {
@@ -757,7 +757,16 @@ func (a *app) resolveTag(version string) (string, error) {
 	return "", errors.New("VERSION is required when the current commit is not an exact tag")
 }
 
-func extractNewsSection(content, tag string) string {
+func extractNewsSection(content, tag, mode string) string {
+	switch mode {
+	case "gnu-news":
+		return extractGNUNewsSection(content, tag)
+	default:
+		return extractMarkdownNewsSection(content, tag)
+	}
+}
+
+func extractMarkdownNewsSection(content, tag string) string {
 	content = strings.ReplaceAll(content, "\r\n", "\n")
 	lines := strings.Split(content, "\n")
 	startPattern := "## " + tag + " - "
@@ -775,6 +784,48 @@ func extractNewsSection(content, tag string) string {
 			section = append(section, line)
 		}
 	}
+	return trimNewsSection(section)
+}
+
+func extractGNUNewsSection(content, tag string) string {
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	lines := strings.Split(content, "\n")
+	inSection := false
+	section := []string{}
+	for _, line := range lines {
+		if isGNUNewsReleaseHeading(line) {
+			if inSection {
+				break
+			}
+			if gnuNewsHeadingMatchesTag(line, tag) {
+				inSection = true
+			}
+			continue
+		}
+		if inSection {
+			section = append(section, line)
+		}
+	}
+	return trimNewsSection(section)
+}
+
+func isGNUNewsReleaseHeading(line string) bool {
+	return strings.HasPrefix(line, "* Noteworthy changes in release ")
+}
+
+func gnuNewsHeadingMatchesTag(line, tag string) bool {
+	version := strings.TrimPrefix(tag, "v")
+	versions := map[string]bool{tag: true, version: true, "v" + version: true}
+	rest := strings.TrimSpace(strings.TrimPrefix(line, "* Noteworthy changes in release "))
+	fields := strings.Fields(rest)
+	if len(fields) == 0 {
+		return false
+	}
+	headingVersion := strings.Trim(fields[0], ":-")
+	return versions[headingVersion]
+}
+
+func trimNewsSection(section []string) string {
 	for len(section) > 0 && strings.TrimSpace(section[0]) == "" {
 		section = section[1:]
 	}

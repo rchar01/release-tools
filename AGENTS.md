@@ -105,7 +105,8 @@
 - `publish-tag` publishes from a clean temporary clone of the exact tag.
 - GoReleaser must run from the release repository root.
 - `check` and `snapshot` paths must not require `RELEASE_TOKEN`.
-- CLI release notes currently support `RELEASE_NOTES_MODE=news-md` and `none`.
+- CLI release notes currently support `RELEASE_NOTES_MODE=news-md`, `gnu-news`,
+  and `none`.
 - CLI release body patching currently supports `RELEASE_BODY_MODE=patch` and `none`.
 - project Go preflight is required only when `RELEASE_REQUIRE_GO=1`.
 - `VERSION` is the only supported tag override variable; `TAG` is not public config.

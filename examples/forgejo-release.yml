@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
-      RELEASE_TOOLS_INSTALL_VERSION: v3.1.0
+      RELEASE_TOOLS_INSTALL_VERSION: v3.3.0
     steps:
       - name: Checkout
         uses: actions/checkout@v4

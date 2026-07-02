@@ -2,6 +2,14 @@
 
 This file gives a short, release-oriented view of what changed between versions.
 
+## v3.3.0 - 2026-07-02
+
+- add `RELEASE_NOTES_MODE=gnu-news` for projects that keep GNU-style
+  `NEWS` files with `* Noteworthy changes in release X.Y.Z (YYYY-MM-DD)`
+  headings
+- preserve the extracted GNU release body, including `**` subsections and
+  indented bullets, in the final release notes file passed to GoReleaser
+
 ## v3.2.0 - 2026-06-22
 
 - add `release-tools version` and `release-tools --version` for reporting the

@@ -42,7 +42,7 @@ Consumer repositories need:
 - GoReleaser available on `PATH` or through `GORELEASER_BIN`
 - a repo-local `.release-tools.env`
 - a project-owned `.goreleaser.yaml`
-- `NEWS.md` when `RELEASE_NOTES_MODE=news-md`
+- `NEWS.md` when release notes are generated from a notes source
 
 Maintainers of this repository also need Go `1.26`, Make, and Podman for the
 container verification path.
@@ -95,6 +95,9 @@ GORELEASER_CONFIG=.goreleaser.yaml
 ```
 
 The consuming repository also owns its `.goreleaser.yaml` and `NEWS.md`.
+Set `RELEASE_NOTES_MODE=news-md` for Markdown headings such as
+`## v1.2.3 - 2026-07-02`, or `RELEASE_NOTES_MODE=gnu-news` for GNU-style
+release headings such as `* Noteworthy changes in release 1.2.3 (2026-07-02)`.
 
 Run local checks from the consumer repository root:
 
@@ -158,6 +161,13 @@ Required for release commands:
 Additionally required for `publish-tag`:
 
 - `VERSION` or a positional tag argument such as `v1.2.3`
+
+Supported release notes modes:
+
+- `news-md`: extract the body below `## vX.Y.Z - YYYY-MM-DD` headings
+- `gnu-news`: extract the body below GNU-style
+  `* Noteworthy changes in release X.Y.Z (YYYY-MM-DD)` headings
+- `none`: disable generated release notes
 
 For the full public config contract, token resolution rules, and consumer setup
 guide, see [`docs/usage.md`](docs/usage.md).
