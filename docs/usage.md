@@ -110,6 +110,8 @@ Supported `.release-tools.env` keys:
 - `RELEASE_HELM_OCI_USERNAME`
 - `RELEASE_HELM_OCI_PASSWORD_FILE`
 - `RELEASE_HELM_OCI_PLAIN_HTTP`
+- `RELEASE_HELM_OCI_SIGNER`
+- `RELEASE_HELM_OCI_SIGN_ARGS`
 - `RELEASE_HELM_CLASSIC_URL`
 - `RELEASE_HELM_CLASSIC_USERNAME`
 - `RELEASE_HELM_CLASSIC_TOKEN_FILE`
@@ -176,6 +178,8 @@ RELEASE_HELM_APP_VERSION_FROM=tag
 # RELEASE_HELM_OCI_USERNAME=robot
 # RELEASE_HELM_OCI_PASSWORD_FILE=~/.config/helm/oci-token
 # RELEASE_HELM_OCI_PLAIN_HTTP=0
+# RELEASE_HELM_OCI_SIGNER=none
+# RELEASE_HELM_OCI_SIGN_ARGS=--key cosign.key
 # RELEASE_HELM_CLASSIC_URL=https://forge.example/api/packages/myowner/helm
 # RELEASE_HELM_CLASSIC_USERNAME=robot
 # RELEASE_HELM_CLASSIC_TOKEN_FILE=~/.config/forgejo/helm-token
@@ -199,6 +203,9 @@ Chart-enabled commands add local Helm behavior:
   GoReleaser publishes release assets
 - when `RELEASE_HELM_OCI_REPOSITORY` is set, `publish` and `publish-tag` run
   `helm push <chart>.tgz oci://...` for each packaged chart after GoReleaser
+  succeeds
+- when `RELEASE_HELM_OCI_SIGNER=cosign` or `notation`, `publish` and
+  `publish-tag` sign pushed OCI charts by immutable digest after `helm push`
   succeeds
 - when `RELEASE_HELM_CLASSIC_URL` is set, `publish` and `publish-tag` upload
   each packaged chart to `<url>/api/charts` after GoReleaser succeeds
@@ -224,6 +231,16 @@ Set `RELEASE_HELM_OCI_PLAIN_HTTP=1` only for disposable or otherwise explicitly
 trusted insecure registries; it appends Helm's `--plain-http` flag to OCI chart
 registry login and pushes.
 
+Set `RELEASE_HELM_OCI_SIGNER=cosign` or `RELEASE_HELM_OCI_SIGNER=notation` to
+sign pushed OCI charts by immutable digest after `helm push` succeeds. The CLI
+parses Helm's `Pushed:` and `Digest:` output, constructs
+`<registry>/<repo>/<chart>@sha256:...`, and signs only that immutable reference.
+If Helm does not report a digest, signing fails rather than signing a mutable tag.
+Cosign is invoked as `cosign sign --yes <args> <digest-ref>` and Notation is
+invoked as `notation sign <args> <digest-ref>`. Put non-secret signing flags in
+`RELEASE_HELM_OCI_SIGN_ARGS`; signing credentials remain owned by the selected
+tool and its environment.
+
 Set `RELEASE_HELM_PROVENANCE=1` to sign packaged charts with Helm's classic
 provenance support. When enabled, `RELEASE_HELM_GPG_KEY` and
 `RELEASE_HELM_GPG_KEYRING` are required, and `release-tools` runs
@@ -232,9 +249,9 @@ paths are resolved from the release repository root, including the clean tag
 clone used by `publish-tag`. The keyring must be readable before publish starts.
 Use a Helm-compatible GPG keyring that contains the signing key, such as an
 exported release keyring kept outside the repository.
-OCI chart signing is not implemented; chart OCI signatures are intentionally
-deferred until digest-based signing behavior is validated against real
-registries.
+OCI chart signing is separate from Helm classic provenance. Classic provenance
+signs the packaged chart file; OCI signing signs the pushed registry artifact by
+digest.
 
 `RELEASE_HELM_CLASSIC_URL` is for ChartMuseum-compatible classic Helm package
 registries, including Forgejo/Gitea package registries. Set it to the Helm
@@ -268,6 +285,10 @@ The chart release manifest currently uses this schema:
         "provenance_path": "dist/charts/myapp-1.2.3.tgz.prov",
         "provenance_sha256": "...",
         "oci_ref": "oci://registry.example.com/myowner/charts/myapp:1.2.3",
+        "oci_digest": "sha256:...",
+        "oci_digest_ref": "registry.example.com/myowner/charts/myapp@sha256:...",
+        "oci_signer": "cosign",
+        "oci_signed_ref": "registry.example.com/myowner/charts/myapp@sha256:...",
         "classic_url": "https://forge.example/api/packages/myowner/helm",
         "classic_upload_url": "https://forge.example/api/packages/myowner/helm/api/charts"
       }
@@ -276,8 +297,8 @@ The chart release manifest currently uses this schema:
 }
 ```
 
-The provenance, OCI, and classic fields appear only when those outputs or
-targets are configured. Manifest chart package paths are repo-relative
+The provenance, OCI digest/signing, and classic fields appear only when those
+outputs or targets are configured. Manifest chart package paths are repo-relative
 `dist/charts/...` paths. During publish commands, charts are first packaged in a
 temporary directory outside the repository so GoReleaser cannot clean them before
 upload. After chart pushes or uploads succeed, those packages and `.prov` files

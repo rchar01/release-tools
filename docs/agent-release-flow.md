@@ -152,6 +152,8 @@ classic Helm package registry, including Forgejo/Gitea package registries, after
 GoReleaser succeeds.
 `RELEASE_HELM_OCI_PLAIN_HTTP=1` is an explicit insecure-registry opt-in for
 local or disposable OCI registry tests.
+If `RELEASE_HELM_OCI_SIGNER` is set to `cosign` or `notation`, publish commands
+sign pushed OCI charts after Helm reports the immutable digest for each push.
 
 Reason:
 
@@ -166,6 +168,8 @@ Reason:
   `--password-stdin`
 - plaintext OCI passwords are environment-only; committed config should use a
   password file path instead
+- OCI chart signing is digest-only; signing fails if Helm does not report a
+  digest, because signing mutable chart tags would provide weak verification
 - classic package uploads use the ChartMuseum-compatible `/api/charts` endpoint
   rather than a Helm plugin
 - classic package uploads use documented Basic auth with a username plus an
@@ -181,8 +185,8 @@ Reason:
   `dist/charts` before writing the manifest so recorded paths remain valid
 - `publish-tag` copies the chart packages, provenance files, and manifest out of
   the clean temporary tag clone before the clone is removed
-- OCI chart signing is deferred until immutable digest-based signing is proven
-  against real registries
+- OCI chart signing uses Cosign or Notation against the immutable digest reported
+  by Helm after `helm push`
 
 ### Go Preflight Is Optional
 

@@ -56,6 +56,8 @@
   - `RELEASE_HELM_OCI_USERNAME`
   - `RELEASE_HELM_OCI_PASSWORD_FILE`
   - `RELEASE_HELM_OCI_PLAIN_HTTP`
+  - `RELEASE_HELM_OCI_SIGNER`
+  - `RELEASE_HELM_OCI_SIGN_ARGS`
   - `RELEASE_HELM_CLASSIC_URL`
   - `RELEASE_HELM_CLASSIC_USERNAME`
   - `RELEASE_HELM_CLASSIC_TOKEN_FILE`
@@ -95,6 +97,11 @@
 - `RELEASE_HELM_OCI_PLAIN_HTTP=1` appends Helm's `--plain-http` flag to OCI
   registry login and chart pushes and is intended only for explicitly trusted
   insecure registries.
+- `RELEASE_HELM_OCI_SIGNER=cosign` or `notation` signs pushed OCI charts by the
+  immutable digest reported by Helm after `helm push`; signing fails if Helm does
+  not report a digest.
+- `RELEASE_HELM_OCI_SIGN_ARGS` appends non-secret arguments to the selected OCI
+  chart signing command before the digest reference.
 - `RELEASE_HELM_OCI_PASSWORD` is environment-only and is intentionally not a
   supported `.release-tools.env` key.
 - `RELEASE_HELM_CLASSIC_URL` enables raw Helm chart upload to a
@@ -199,7 +206,8 @@
 - GoReleaser resolution checks `GORELEASER_BIN`, then common install locations.
 - Helm is required only when `RELEASE_ARTIFACTS` includes `charts`.
 - Helm chart provenance signing uses Helm's built-in `helm package --sign` with
-  an explicit GPG key and keyring; OCI chart signing is not implemented.
+  an explicit GPG key and keyring; OCI chart signing uses Cosign or Notation
+  against the immutable digest reported by Helm.
 - Docker/Podman/Cosign are required only when GoReleaser container image or
   image-signing config is detected.
 - Go baseline is Go 1.26 with toolchain `go1.26.4`.

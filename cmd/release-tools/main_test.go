@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -958,6 +959,110 @@ func TestPublishPushesHelmChartsToOCIAfterGoreleaser(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "dist", "charts", "demo-1.2.3.tgz")); err != nil {
 		t.Fatalf("persisted chart package missing: %v", err)
+	}
+}
+
+func TestPublishSignsOCIHelmChartsByDigest(t *testing.T) {
+	dir := t.TempDir()
+	writeChart(t, filepath.Join(dir, "charts", "demo"), "demo")
+	writeFile(t, filepath.Join(dir, "NEWS.md"), "# News\n\n## v1.2.3 - 2026-07-02\n\n- release\n")
+	fake := &fakeCommandRunner{}
+	fake.onRun = func(cmd runner.Command) error {
+		if cmd.Name == "/fake/helm" && len(cmd.Args) > 0 && cmd.Args[0] == "push" {
+			_, _ = fmt.Fprintln(cmd.Stdout, "Pushed: registry.example/charts/demo:1.2.3")
+			_, _ = fmt.Fprintln(cmd.Stdout, "Digest: sha256:abc123")
+		}
+		return nil
+	}
+	a := &app{
+		repoRoot: dir,
+		tmpDir:   filepath.Join(dir, ".tmp"),
+		env: map[string]string{
+			"VERSION":                     "v1.2.3",
+			"RELEASE_FORGE":               "gitea",
+			"RELEASE_TOKEN":               "token",
+			"RELEASE_ARTIFACTS":           "charts",
+			"RELEASE_HELM_CHART_DIRS":     "charts/demo",
+			"RELEASE_HELM_OCI_REPOSITORY": "oci://registry.example/charts",
+			"RELEASE_HELM_OCI_SIGNER":     "cosign",
+			"RELEASE_HELM_OCI_SIGN_ARGS":  "--key cosign.key",
+			"RELEASE_NOTES_MODE":          "news-md",
+			"RELEASE_NOTES_SOURCE":        "NEWS.md",
+			"RELEASE_BODY_MODE":           "none",
+			"GORELEASER_BIN":              "/tools/goreleaser",
+		},
+		commands: fake,
+		stdout:   ioDiscard(),
+		stderr:   ioDiscard(),
+	}
+
+	if err := a.publish(); err != nil {
+		t.Fatal(err)
+	}
+	got := commandStrings(fake.runCommands)
+	if len(got) != 4 {
+		t.Fatalf("commands = %#v, want package, goreleaser, helm push, cosign", got)
+	}
+	if got[3] != "/fake/cosign sign --yes --key cosign.key registry.example/charts/demo@sha256:abc123" {
+		t.Fatalf("sign command = %q, want digest cosign sign", got[3])
+	}
+	manifest := readReleaseManifest(t, filepath.Join(dir, "dist", "release-manifest.json"))
+	chart := manifest.Artifacts.HelmCharts[0]
+	if chart.OCIRef != "registry.example/charts/demo:1.2.3" {
+		t.Fatalf("oci ref = %q, want pushed ref", chart.OCIRef)
+	}
+	if chart.OCIDigest != "sha256:abc123" || chart.OCIDigestRef != "registry.example/charts/demo@sha256:abc123" {
+		t.Fatalf("digest fields = %q / %q, want immutable digest ref", chart.OCIDigest, chart.OCIDigestRef)
+	}
+	if chart.OCISigner != "cosign" || chart.OCISignedRef != "registry.example/charts/demo@sha256:abc123" {
+		t.Fatalf("signature fields = %q / %q, want cosign digest ref", chart.OCISigner, chart.OCISignedRef)
+	}
+}
+
+func TestPublishFailsSigningWhenHelmPushDigestMissing(t *testing.T) {
+	dir := t.TempDir()
+	writeChart(t, filepath.Join(dir, "charts", "demo"), "demo")
+	writeFile(t, filepath.Join(dir, "NEWS.md"), "# News\n\n## v1.2.3 - 2026-07-02\n\n- release\n")
+	fake := &fakeCommandRunner{}
+	a := &app{
+		repoRoot: dir,
+		tmpDir:   filepath.Join(dir, ".tmp"),
+		env: map[string]string{
+			"VERSION":                     "v1.2.3",
+			"RELEASE_FORGE":               "gitea",
+			"RELEASE_TOKEN":               "token",
+			"RELEASE_ARTIFACTS":           "charts",
+			"RELEASE_HELM_CHART_DIRS":     "charts/demo",
+			"RELEASE_HELM_OCI_REPOSITORY": "oci://registry.example/charts",
+			"RELEASE_HELM_OCI_SIGNER":     "notation",
+			"RELEASE_NOTES_MODE":          "news-md",
+			"RELEASE_NOTES_SOURCE":        "NEWS.md",
+			"RELEASE_BODY_MODE":           "none",
+			"GORELEASER_BIN":              "/tools/goreleaser",
+		},
+		commands: fake,
+		stdout:   ioDiscard(),
+		stderr:   ioDiscard(),
+	}
+
+	err := a.publish()
+	if err == nil || !strings.Contains(err.Error(), "cannot sign by immutable digest") {
+		t.Fatalf("publish error = %v, want missing digest signing error", err)
+	}
+	for _, cmd := range fake.runCommands {
+		if cmd.Name == "/fake/notation" {
+			t.Fatalf("notation ran without digest: %#v", commandStrings(fake.runCommands))
+		}
+	}
+}
+
+func TestParseHelmPushOutput(t *testing.T) {
+	ref, digest := parseHelmPushOutput("Pushed: localhost:5000/owner/charts/demo:1.2.3\nDigest: sha256:deadbeef\n")
+	if ref != "localhost:5000/owner/charts/demo:1.2.3" || digest != "sha256:deadbeef" {
+		t.Fatalf("parse = %q / %q, want pushed ref and digest", ref, digest)
+	}
+	if got := helmOCIDigestRef(ref, digest); got != "localhost:5000/owner/charts/demo@sha256:deadbeef" {
+		t.Fatalf("digest ref = %q, want host port safe digest ref", got)
 	}
 }
 

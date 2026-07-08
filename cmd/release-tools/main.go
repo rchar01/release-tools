@@ -38,6 +38,8 @@ var allowedConfigKeys = map[string]bool{
 	"RELEASE_HELM_OCI_USERNAME":       true,
 	"RELEASE_HELM_OCI_PASSWORD_FILE":  true,
 	"RELEASE_HELM_OCI_PLAIN_HTTP":     true,
+	"RELEASE_HELM_OCI_SIGNER":         true,
+	"RELEASE_HELM_OCI_SIGN_ARGS":      true,
 	"RELEASE_HELM_CLASSIC_URL":        true,
 	"RELEASE_HELM_CLASSIC_USERNAME":   true,
 	"RELEASE_HELM_CLASSIC_TOKEN_FILE": true,
@@ -124,8 +126,21 @@ type releaseManifestHelmChart struct {
 	ProvenancePath   string `json:"provenance_path,omitempty"`
 	ProvenanceSHA256 string `json:"provenance_sha256,omitempty"`
 	OCIRef           string `json:"oci_ref,omitempty"`
+	OCIDigest        string `json:"oci_digest,omitempty"`
+	OCIDigestRef     string `json:"oci_digest_ref,omitempty"`
+	OCISigner        string `json:"oci_signer,omitempty"`
+	OCISignedRef     string `json:"oci_signed_ref,omitempty"`
 	ClassicURL       string `json:"classic_url,omitempty"`
 	ClassicUploadURL string `json:"classic_upload_url,omitempty"`
+}
+
+type helmOCIPushResult struct {
+	Package   string
+	Ref       string
+	Digest    string
+	DigestRef string
+	Signer    string
+	SignedRef string
 }
 
 type goreleaserContainerConfig struct {
@@ -519,7 +534,7 @@ func (a *app) snapshot() error {
 		return err
 	}
 	if len(packages) > 0 {
-		return a.writeReleaseManifest(chartTag, chartVersion, packages)
+		return a.writeReleaseManifest(chartTag, chartVersion, packages, nil)
 	}
 	return nil
 }
@@ -617,6 +632,9 @@ func (a *app) doctor() error {
 		}
 		if repository := a.helmOCIRepository(); repository != "" {
 			a.log("Helm OCI repository: %s", repository)
+			if signer := a.helmOCISigner(); signer != "none" {
+				a.log("Helm OCI signer: %s", signer)
+			}
 		}
 		if classicURL := a.helmClassicURL(); classicURL != "" {
 			a.log("Helm classic URL: %s", classicURL)
@@ -666,6 +684,11 @@ func (a *app) ensureTools() error {
 	} else if enabled {
 		if _, err := a.resolveHelmBin(); err != nil {
 			return err
+		}
+		if signer := a.helmOCISigner(); signer != "none" {
+			if _, err := a.commandRunner().LookPath(signer); err != nil {
+				return fmt.Errorf("%s is required when RELEASE_HELM_OCI_SIGNER=%s", signer, signer)
+			}
 		}
 	}
 	return a.ensureContainerTools()
@@ -890,8 +913,8 @@ func changedHelmPackage(before, after map[string]fileState) (string, error) {
 	return changed[0], nil
 }
 
-func (a *app) writeReleaseManifest(tag, version string, packages []string) error {
-	charts, err := a.releaseManifestHelmCharts(version, packages)
+func (a *app) writeReleaseManifest(tag, version string, packages []string, ociResults []helmOCIPushResult) error {
+	charts, err := a.releaseManifestHelmCharts(version, packages, ociResults)
 	if err != nil {
 		return err
 	}
@@ -917,7 +940,11 @@ func (a *app) writeReleaseManifest(tag, version string, packages []string) error
 	return os.WriteFile(manifestPath, content, 0o644)
 }
 
-func (a *app) releaseManifestHelmCharts(version string, packages []string) ([]releaseManifestHelmChart, error) {
+func (a *app) releaseManifestHelmCharts(version string, packages []string, ociResults []helmOCIPushResult) ([]releaseManifestHelmChart, error) {
+	ociByPackage := map[string]helmOCIPushResult{}
+	for _, result := range ociResults {
+		ociByPackage[manifestPathForRepo(a.repoRoot, result.Package)] = result
+	}
 	charts := make([]releaseManifestHelmChart, 0, len(packages))
 	for _, chartPackage := range packages {
 		name := helmPackageName(chartPackage, version)
@@ -944,6 +971,15 @@ func (a *app) releaseManifestHelmCharts(version string, packages []string) ([]re
 		}
 		if repository := a.helmOCIRepository(); repository != "" && name != "" {
 			chart.OCIRef = strings.TrimRight(repository, "/") + "/" + name + ":" + version
+		}
+		if result, ok := ociByPackage[manifestPathForRepo(a.repoRoot, chartPackage)]; ok {
+			if result.Ref != "" {
+				chart.OCIRef = result.Ref
+			}
+			chart.OCIDigest = result.Digest
+			chart.OCIDigestRef = result.DigestRef
+			chart.OCISigner = result.Signer
+			chart.OCISignedRef = result.SignedRef
 		}
 		if classicURL := a.helmClassicURL(); classicURL != "" {
 			chart.ClassicURL = classicURL
@@ -1090,21 +1126,22 @@ func (a *app) prepareHelmOCIAuth(auth *helmOCIAuth) (*helmOCIAuthSession, error)
 	return session, nil
 }
 
-func (a *app) runHelmOCIPushes(packages []string, session *helmOCIAuthSession) error {
+func (a *app) runHelmOCIPushes(packages []string, session *helmOCIAuthSession) ([]helmOCIPushResult, error) {
 	if len(packages) == 0 {
-		return nil
+		return nil, nil
 	}
 	repository := a.helmOCIRepository()
 	if repository == "" {
-		return nil
+		return nil, nil
 	}
 	if _, err := a.helmOCIRepositoryChecked(); err != nil {
-		return err
+		return nil, err
 	}
 	helmBin, err := a.resolveHelmBin()
 	if err != nil {
-		return err
+		return nil, err
 	}
+	results := make([]helmOCIPushResult, 0, len(packages))
 	for _, chartPackage := range packages {
 		args := []string{"push", chartPackage, repository}
 		if a.helmOCIPlainHTTP() {
@@ -1113,11 +1150,120 @@ func (a *app) runHelmOCIPushes(packages []string, session *helmOCIAuthSession) e
 		if session != nil && session.registryConfig != "" {
 			args = append(args, "--registry-config", session.registryConfig)
 		}
-		if err := a.runHelm(helmBin, args...); err != nil {
-			return err
+		result, err := a.runHelmOCIPush(helmBin, chartPackage, args...)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, result)
+	}
+	return results, nil
+}
+
+func (a *app) runHelmOCIPush(helmBin, chartPackage string, args ...string) (helmOCIPushResult, error) {
+	var output bytes.Buffer
+	stdout := a.stdout
+	if stdout == nil {
+		stdout = io.Discard
+	}
+	stderr := a.stderr
+	if stderr == nil {
+		stderr = io.Discard
+	}
+	cmd := runner.Command{
+		Dir:    a.repoRoot,
+		Name:   helmBin,
+		Args:   args,
+		Stdout: io.MultiWriter(stdout, &output),
+		Stderr: io.MultiWriter(stderr, &output),
+	}
+	if err := a.commandRunner().Run(cmd); err != nil {
+		return helmOCIPushResult{}, err
+	}
+	ref, digest := parseHelmPushOutput(output.String())
+	result := helmOCIPushResult{Package: chartPackage, Ref: ref, Digest: digest}
+	if digest != "" {
+		result.DigestRef = helmOCIDigestRef(ref, digest)
+	}
+	return result, nil
+}
+
+func parseHelmPushOutput(output string) (string, string) {
+	ref := ""
+	digest := ""
+	for _, raw := range strings.Split(strings.ReplaceAll(output, "\r\n", "\n"), "\n") {
+		line := strings.TrimSpace(raw)
+		if value, ok := strings.CutPrefix(line, "Pushed:"); ok {
+			ref = strings.TrimSpace(value)
+			continue
+		}
+		if value, ok := strings.CutPrefix(line, "Digest:"); ok {
+			digest = strings.TrimSpace(value)
 		}
 	}
+	return ref, digest
+}
+
+func helmOCIDigestRef(ref, digest string) string {
+	if ref == "" || digest == "" {
+		return ""
+	}
+	ref = strings.TrimPrefix(ref, "oci://")
+	lastSlash := strings.LastIndex(ref, "/")
+	lastColon := strings.LastIndex(ref, ":")
+	if lastColon > lastSlash {
+		ref = ref[:lastColon]
+	}
+	return ref + "@" + digest
+}
+
+func rebaseHelmOCIPushResults(results []helmOCIPushResult, packages []string) []helmOCIPushResult {
+	if len(results) == 0 || len(packages) == 0 {
+		return results
+	}
+	rebased := make([]helmOCIPushResult, 0, len(results))
+	for i, result := range results {
+		if i < len(packages) {
+			result.Package = packages[i]
+		}
+		rebased = append(rebased, result)
+	}
+	return rebased
+}
+
+func (a *app) runHelmOCISignatures(results []helmOCIPushResult) error {
+	signer := a.helmOCISigner()
+	if signer == "none" || len(results) == 0 {
+		return nil
+	}
+	bin, err := a.commandRunner().LookPath(signer)
+	if err != nil {
+		return fmt.Errorf("%s is required when RELEASE_HELM_OCI_SIGNER=%s", signer, signer)
+	}
+	for i := range results {
+		if results[i].DigestRef == "" {
+			return fmt.Errorf("helm push did not report an OCI digest for %s; cannot sign by immutable digest", results[i].Package)
+		}
+		args := a.helmOCISignCommandArgs(signer, results[i].DigestRef)
+		cmd := runner.Command{Dir: a.repoRoot, Name: bin, Args: args, Stdout: a.stdout, Stderr: a.stderr}
+		if err := a.commandRunner().Run(cmd); err != nil {
+			return err
+		}
+		results[i].Signer = signer
+		results[i].SignedRef = results[i].DigestRef
+	}
 	return nil
+}
+
+func (a *app) helmOCISignCommandArgs(signer, digestRef string) []string {
+	args := []string{}
+	switch signer {
+	case "cosign":
+		args = append(args, "sign", "--yes")
+	case "notation":
+		args = append(args, "sign")
+	}
+	args = append(args, strings.Fields(a.helmOCISignArgs())...)
+	return append(args, digestRef)
 }
 
 func (a *app) runHelmOCILogin(helmBin, repository, registryConfig string, auth *helmOCIAuth) error {
@@ -1241,7 +1387,11 @@ func (a *app) publish() error {
 	if err := a.updateReleaseBody(tag, notesFile, token); err != nil {
 		return err
 	}
-	if err := a.runHelmOCIPushes(packages, helmOCISession); err != nil {
+	ociResults, err := a.runHelmOCIPushes(packages, helmOCISession)
+	if err != nil {
+		return err
+	}
+	if err := a.runHelmOCISignatures(ociResults); err != nil {
 		return err
 	}
 	if err := a.runHelmClassicUploads(packages, helmClassicAuth); err != nil {
@@ -1254,7 +1404,7 @@ func (a *app) publish() error {
 	if err != nil {
 		return err
 	}
-	return a.writeReleaseManifest(tag, chartVersionFromTag(tag), manifestPackages)
+	return a.writeReleaseManifest(tag, chartVersionFromTag(tag), manifestPackages, rebaseHelmOCIPushResults(ociResults, manifestPackages))
 }
 
 func (a *app) publishTag(tag string) error {
@@ -1325,7 +1475,11 @@ func (a *app) publishTag(tag string) error {
 	if err := cloneApp.updateReleaseBody(tag, notesFile, token); err != nil {
 		return err
 	}
-	if err := cloneApp.runHelmOCIPushes(packages, helmOCISession); err != nil {
+	ociResults, err := cloneApp.runHelmOCIPushes(packages, helmOCISession)
+	if err != nil {
+		return err
+	}
+	if err := cloneApp.runHelmOCISignatures(ociResults); err != nil {
 		return err
 	}
 	if err := cloneApp.runHelmClassicUploads(packages, helmClassicAuth); err != nil {
@@ -1336,7 +1490,7 @@ func (a *app) publishTag(tag string) error {
 		if err != nil {
 			return err
 		}
-		if err := cloneApp.writeReleaseManifest(tag, chartVersionFromTag(tag), manifestPackages); err != nil {
+		if err := cloneApp.writeReleaseManifest(tag, chartVersionFromTag(tag), manifestPackages, rebaseHelmOCIPushResults(ociResults, manifestPackages)); err != nil {
 			return err
 		}
 		if err := a.copyReleaseOutputsFrom(cloneApp); err != nil {
@@ -2189,6 +2343,9 @@ func (a *app) validateChartConfig() error {
 	if err := a.validateHelmOCIPlainHTTPConfig(); err != nil {
 		return err
 	}
+	if err := a.validateHelmOCISignConfig(); err != nil {
+		return err
+	}
 	if err := a.validateHelmClassicConfig(); err != nil {
 		return err
 	}
@@ -2204,6 +2361,9 @@ func (a *app) validateChartConfig() error {
 	}
 	if !enabled && a.env["RELEASE_HELM_OCI_PLAIN_HTTP"] != "" {
 		return errors.New("RELEASE_HELM_OCI_PLAIN_HTTP requires RELEASE_ARTIFACTS to include charts")
+	}
+	if !enabled && a.helmOCISignConfigured() {
+		return errors.New("RELEASE_HELM_OCI_SIGNER and RELEASE_HELM_OCI_SIGN_ARGS require RELEASE_ARTIFACTS to include charts")
 	}
 	if !enabled && a.helmClassicURL() != "" {
 		return errors.New("RELEASE_HELM_CLASSIC_URL requires RELEASE_ARTIFACTS to include charts")
@@ -2333,6 +2493,18 @@ func (a *app) helmOCIPlainHTTP() bool {
 	return configBool(a.env["RELEASE_HELM_OCI_PLAIN_HTTP"])
 }
 
+func (a *app) helmOCISigner() string {
+	value := strings.ToLower(strings.TrimSpace(a.env["RELEASE_HELM_OCI_SIGNER"]))
+	if value == "" {
+		return "none"
+	}
+	return value
+}
+
+func (a *app) helmOCISignArgs() string {
+	return strings.TrimSpace(a.env["RELEASE_HELM_OCI_SIGN_ARGS"])
+}
+
 func configBool(value string) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "1", "true", "yes", "on":
@@ -2459,6 +2631,26 @@ func (a *app) validateHelmOCIPlainHTTPConfig() error {
 	}
 	if a.env["RELEASE_HELM_OCI_PLAIN_HTTP"] != "" && a.helmOCIRepository() == "" {
 		return errors.New("RELEASE_HELM_OCI_PLAIN_HTTP requires RELEASE_HELM_OCI_REPOSITORY")
+	}
+	return nil
+}
+
+func (a *app) helmOCISignConfigured() bool {
+	return a.env["RELEASE_HELM_OCI_SIGNER"] != "" || a.helmOCISignArgs() != ""
+}
+
+func (a *app) validateHelmOCISignConfig() error {
+	signer := a.helmOCISigner()
+	switch signer {
+	case "none", "cosign", "notation":
+	default:
+		return fmt.Errorf("unsupported RELEASE_HELM_OCI_SIGNER: %s", signer)
+	}
+	if signer == "none" && a.helmOCISignArgs() != "" {
+		return errors.New("RELEASE_HELM_OCI_SIGN_ARGS requires RELEASE_HELM_OCI_SIGNER")
+	}
+	if signer != "none" && a.helmOCIRepository() == "" {
+		return errors.New("RELEASE_HELM_OCI_SIGNER requires RELEASE_HELM_OCI_REPOSITORY")
 	}
 	return nil
 }
