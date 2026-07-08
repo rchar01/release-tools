@@ -33,7 +33,7 @@ if [[ "${RELEASE_TOOLS_CODEBERG_SMOKE_IN_CONTAINER:-}" != "1" ]] && command -v p
 	exit "$status"
 fi
 
-for tool in curl git go goreleaser helm; do
+for tool in curl git go goreleaser helm jq; do
 	if ! command -v "$tool" >/dev/null 2>&1; then
 		printf 'required tool not found: %s\n' "$tool" >&2
 		exit 1
@@ -187,6 +187,7 @@ RELEASE_HELM_APP_VERSION_FROM=tag
 RELEASE_NOTES_MODE=news-md
 RELEASE_NOTES_SOURCE=NEWS.md
 RELEASE_BODY_MODE=patch
+RELEASE_MANIFEST_UPLOAD=1
 GORELEASER_CONFIG=.goreleaser.yaml
 EOF
 if [[ "$package_enabled" == 1 ]]; then
@@ -230,6 +231,17 @@ release_json="$(curl -fsS --config "$test_root/curl-auth.conf" \
 	"$api_base/repos/$CODEBERG_SMOKE_OWNER/$CODEBERG_SMOKE_REPO/releases/tags/$tag")"
 if [[ "$release_json" != *"Codeberg smoke test for release-tools"* ]]; then
 	printf 'release body was not patched for %s\n' "$tag" >&2
+	exit 1
+fi
+release_id="$(printf '%s\n' "$release_json" | jq -r '.id')"
+if [[ -z "$release_id" || "$release_id" == "null" ]]; then
+	printf 'release id was not found for %s\n' "$tag" >&2
+	exit 1
+fi
+assets_json="$(curl -fsS --config "$test_root/curl-auth.conf" \
+	"$api_base/repos/$CODEBERG_SMOKE_OWNER/$CODEBERG_SMOKE_REPO/releases/$release_id/assets")"
+if ! printf '%s\n' "$assets_json" | jq -e '.[] | select(.name == "release-manifest.json")' >/dev/null; then
+	printf 'release-manifest.json asset was not uploaded for %s\n' "$tag" >&2
 	exit 1
 fi
 

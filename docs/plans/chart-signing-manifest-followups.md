@@ -56,8 +56,8 @@ config surface before behavior is proven.
 
 - [x] Which signing tool should be the first stable OCI Helm chart signing path:
   Cosign, `helm-sigstore`, Notation, or another registry-native tool?
-  Decision: support Cosign and Notation as digest-signing backends; do not make
-  `helm-sigstore` the stable path.
+  Decision: support Cosign first as the stable digest-signing backend; keep
+  Notation and `helm-sigstore` as future work.
 - [x] Which registry should be the first required OCI signing prototype target:
   local Zot, Codeberg package registry if OCI is available, GHCR, or another
   maintained registry?
@@ -115,13 +115,16 @@ Tasks:
 - [x] Prototype pushing a chart to an OCI registry and capturing the immutable
   chart digest reliably.
 - [x] Prototype signing the pushed chart by digest with the chosen signing tool.
-- [ ] Prototype verification from a clean environment using only registry
+- [x] Prototype verification from a clean environment using only registry
   contents, public trust material, and documented commands.
+  Result: `make helm-oci-signing-test` passed on 2026-07-08; it signs a chart in
+  local Zot with a disposable Cosign key and verifies the digest ref from a clean
+  `HOME` using only the public key and registry contents.
 - [x] Record registry/tool versions and exact command evidence in this plan.
 
 Validation gate:
 
-- [ ] A pushed OCI chart can be verified by immutable digest after a fresh pull or
+- [x] A pushed OCI chart can be verified by immutable digest after a fresh pull or
   registry lookup.
 - [x] Failure behavior is clear when the registry rejects duplicate chart
   versions, missing signatures, or unsupported artifact references.
@@ -138,7 +141,7 @@ Goal: Add OCI chart signing only after Phase 2 proves the verification model.
 Tasks:
 
 - [x] Define the smallest public config needed for OCI chart signing, if any.
-  Stable config: `RELEASE_HELM_OCI_SIGNER=cosign|notation|none` and optional
+  Stable config: `RELEASE_HELM_OCI_SIGNER=cosign|none` and optional
   non-secret `RELEASE_HELM_OCI_SIGN_ARGS`.
 - [x] Add strict config validation and `doctor`/`tools-check` preflights for the
   chosen signing tool.
@@ -146,8 +149,9 @@ Tasks:
 - [x] Record signature references or verification metadata in
   `dist/release-manifest.json`.
 - [x] Add unit tests for command construction, missing tools, and error paths.
-- [ ] Add an integration or smoke test that signs and verifies against the chosen
+- [x] Add an integration or smoke test that signs and verifies against the chosen
   OCI registry.
+  Result: added `make helm-oci-signing-test` backed by local Zot and Cosign.
 - [x] Update `README.md`, `docs/usage.md`, `docs/agent-release-flow.md`,
   `AGENTS.md`, and `CHANGELOG.md` only for implemented stable behavior.
 
@@ -155,7 +159,8 @@ Validation gate:
 
 - [x] Focused signing tests pass.
 - [x] `make verify` passes.
-- [ ] OCI signing smoke test passes.
+- [x] OCI signing smoke test passes.
+  Result: passed on 2026-07-08 for `v0.2.1783545370`.
 
 ## Phase 4: GoReleaser Artifact Manifest Merge
 
@@ -202,8 +207,12 @@ Tasks:
 Validation gate:
 
 - [x] Upload tests pass for supported forge APIs.
-- [ ] A live smoke test confirms the manifest appears as a release asset only
+- [x] A live smoke test confirms the manifest appears as a release asset only
   after all configured artifact steps succeed.
+  Result: `make codeberg-smoke-test` passed on 2026-07-08 for
+  `rch/release-tools-smoke` `v0.0.1783545390`; the smoke enabled
+  `RELEASE_MANIFEST_UPLOAD=1` and verified `release-manifest.json` in the release
+  asset API.
 - [x] `make verify` passes.
 
 ## Risks
@@ -223,6 +232,7 @@ Validation gate:
 - [x] `make verify`
 - [x] `make container-test`
 - [x] `make helm-registry-test`
+- [x] `make helm-oci-signing-test`
 - [x] `make helm-provenance-test`
 - [x] `make codeberg-smoke-test`
 
@@ -232,14 +242,16 @@ Validation gate:
 | --- | --- | --- |
 | 2026-07-08 | Plan created for chart signing and manifest follow-ups. | User requested a written plan for remaining chart/signing future work. |
 | 2026-07-08 | Phase 1 release-readiness validation passed. | `make verify`, `make container-test`, `make helm-registry-test`, `make helm-provenance-test`, and `make codeberg-smoke-test` all passed sequentially; Codeberg smoke passed for `rch/release-tools-smoke` `v0.0.1783530033`. |
-| 2026-07-08 | Phase 2 and Phase 3 OCI signing implementation started. | Research selected Cosign and Notation over `helm-sigstore`; implementation parses Helm `Pushed:`/`Digest:` output, signs digest refs only, and records digest/signature metadata in the chart manifest. |
+| 2026-07-08 | Phase 2 and Phase 3 OCI signing implementation started. | Research selected Cosign first over broader signing abstractions; implementation parses Helm `Pushed:`/`Digest:` output, signs digest refs only, and records digest/signature metadata in the chart manifest. |
 | 2026-07-08 | Phase 4 GoReleaser artifact manifest merge implemented. | Snapshot, publish, and publish-tag now merge `dist/artifacts.json` metadata into `dist/release-manifest.json` when present, including binary-only publish-tag output copying so repo-relative paths remain valid after clone cleanup. |
 | 2026-07-08 | Phase 5 manifest upload implemented. | `RELEASE_MANIFEST_UPLOAD=1` uploads `dist/release-manifest.json` after all configured publish-time artifact steps succeed; Gitea/Forgejo/Codeberg, GitHub, and GitLab upload paths have focused tests. |
 | 2026-07-08 | Phase 2 through Phase 5 verification passed. | `make verify`, `make container-test`, `make helm-registry-test`, `make helm-provenance-test`, and `make codeberg-smoke-test` passed after OCI digest signing, GoReleaser manifest metadata merge, and manifest upload changes. Codeberg smoke passed for `rch/release-tools-smoke` `v0.0.1783536199`. |
+| 2026-07-08 | Remaining OCI signing and manifest asset validation closed. | `make helm-oci-signing-test` passed against local Zot with Cosign verification by digest for `v0.2.1783545370`; `make codeberg-smoke-test` passed for `rch/release-tools-smoke` `v0.0.1783545390` and verified the uploaded `release-manifest.json` release asset. |
+| 2026-07-08 | Final follow-up verification passed. | `make verify` passed locally; verification subagent reported `make helm-registry-test`, `make helm-provenance-test`, and `make container-test` all passed sequentially. |
 
 ## Decision Log
 
 | Date | Decision | Reason |
 | --- | --- | --- |
 | 2026-07-08 | Keep OCI chart signing deferred until immutable digest signing is proven. | Existing stable support covers Helm classic provenance; OCI signing by mutable tag would provide weak verification. |
-| 2026-07-08 | Support Cosign and Notation for OCI chart digest signing. | Both tools sign OCI artifact digest references directly; keeping signer choice explicit avoids registry-specific assumptions. |
+| 2026-07-08 | Support Cosign first for OCI chart digest signing. | Cosign can sign OCI artifact digest references directly; keeping the public surface to `cosign|none` avoids committing to additional signer semantics before smoke verification. |

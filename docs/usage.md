@@ -206,7 +206,7 @@ Chart-enabled commands add local Helm behavior:
 - when `RELEASE_HELM_OCI_REPOSITORY` is set, `publish` and `publish-tag` run
   `helm push <chart>.tgz oci://...` for each packaged chart after GoReleaser
   succeeds
-- when `RELEASE_HELM_OCI_SIGNER=cosign` or `notation`, `publish` and
+- when `RELEASE_HELM_OCI_SIGNER=cosign`, `publish` and
   `publish-tag` sign pushed OCI charts by immutable digest after `helm push`
   succeeds
 - when `RELEASE_HELM_CLASSIC_URL` is set, `publish` and `publish-tag` upload
@@ -233,15 +233,14 @@ Set `RELEASE_HELM_OCI_PLAIN_HTTP=1` only for disposable or otherwise explicitly
 trusted insecure registries; it appends Helm's `--plain-http` flag to OCI chart
 registry login and pushes.
 
-Set `RELEASE_HELM_OCI_SIGNER=cosign` or `RELEASE_HELM_OCI_SIGNER=notation` to
-sign pushed OCI charts by immutable digest after `helm push` succeeds. The CLI
-parses Helm's `Pushed:` and `Digest:` output, constructs
+Set `RELEASE_HELM_OCI_SIGNER=cosign` to sign pushed OCI charts by immutable
+digest after `helm push` succeeds. The CLI parses Helm's `Pushed:` and
+`Digest:` output, constructs
 `<registry>/<repo>/<chart>@sha256:...`, and signs only that immutable reference.
 If Helm does not report a digest, signing fails rather than signing a mutable tag.
-Cosign is invoked as `cosign sign --yes <args> <digest-ref>` and Notation is
-invoked as `notation sign <args> <digest-ref>`. Put non-secret signing flags in
-`RELEASE_HELM_OCI_SIGN_ARGS`; signing credentials remain owned by the selected
-tool and its environment.
+Cosign is invoked as `cosign sign --yes <args> <digest-ref>`. Put non-secret
+signing flags in `RELEASE_HELM_OCI_SIGN_ARGS`; signing credentials remain owned
+by the selected tool and its environment.
 
 Set `RELEASE_HELM_PROVENANCE=1` to sign packaged charts with Helm's classic
 provenance support. When enabled, `RELEASE_HELM_GPG_KEY` and

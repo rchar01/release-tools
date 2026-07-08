@@ -152,7 +152,7 @@ classic Helm package registry, including Forgejo/Gitea package registries, after
 GoReleaser succeeds.
 `RELEASE_HELM_OCI_PLAIN_HTTP=1` is an explicit insecure-registry opt-in for
 local or disposable OCI registry tests.
-If `RELEASE_HELM_OCI_SIGNER` is set to `cosign` or `notation`, publish commands
+If `RELEASE_HELM_OCI_SIGNER` is set to `cosign`, publish commands
 sign pushed OCI charts after Helm reports the immutable digest for each push.
 
 Reason:
@@ -192,8 +192,8 @@ Reason:
   the clean temporary tag clone before the clone is removed
 - `publish-tag` also copies GoReleaser artifact files referenced by the manifest
   back to the caller repo so local manifest paths remain valid after cleanup
-- OCI chart signing uses Cosign or Notation against the immutable digest reported
-  by Helm after `helm push`
+- OCI chart signing uses Cosign against the immutable digest reported by Helm
+  after `helm push`
 
 ### Go Preflight Is Optional
 

@@ -23,8 +23,8 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   environment-only `RELEASE_HELM_OCI_PASSWORD`
 - added `RELEASE_HELM_OCI_PLAIN_HTTP` for explicit insecure local or disposable
   OCI chart registry tests
-- added digest-based OCI chart signing with `RELEASE_HELM_OCI_SIGNER=cosign` or
-  `notation`, optional `RELEASE_HELM_OCI_SIGN_ARGS`, and manifest fields for the
+- added digest-based OCI chart signing with `RELEASE_HELM_OCI_SIGNER=cosign`,
+  optional `RELEASE_HELM_OCI_SIGN_ARGS`, and manifest fields for the
   pushed chart digest and signed digest reference
 - added ChartMuseum-compatible classic Helm package uploads, including
   Forgejo/Gitea package registries, with `RELEASE_HELM_CLASSIC_URL`,
@@ -32,10 +32,13 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   environment-only `RELEASE_HELM_CLASSIC_TOKEN`
 - added `make helm-registry-test` for Podman-backed Zot and ChartMuseum smoke
   testing
+- added `make helm-oci-signing-test` for Podman-backed Zot and Cosign OCI chart
+  signing verification
 - added `make helm-provenance-test` for disposable GPG-backed Helm provenance
   signing and `helm verify` smoke testing
 - added `make codeberg-smoke-test` for live Codeberg release smoke testing and
-  optional Helm package upload checks against a dedicated disposable repository
+  optional Helm package upload checks against a dedicated disposable repository;
+  it also verifies manifest asset upload when enabled by the smoke fixture
 - added GoReleaser container-image preflights that detect `dockers`,
   `dockers_v2`, `docker_manifests`, and `docker_signs` config and require the
   matching Docker, Podman, Cosign, or configured static signing command during

@@ -261,7 +261,7 @@ Candidate A: Helm OCI registry.
 - [x] Run `helm push <chart>.tgz oci://...` for each packaged chart.
 - [x] Keep publish-time chart packages outside GoReleaser's cleaned `dist`
   directory.
-- [ ] Capture the resulting chart reference when Helm output exposes it
+- [x] Capture the resulting chart reference when Helm output exposes it
   reliably.
 - [x] Define behavior when a chart version already exists.
 - [x] Prototype against a local Zot OCI registry before documenting support as
@@ -327,16 +327,20 @@ Goal: Add signing orchestration only where the verification model is clear.
 
 Tasks:
 
-- [ ] Add `RELEASE_SIGN_MODE=none|cosign|notation` only when at least one mode is
-  implemented.
+- [x] Close `RELEASE_SIGN_MODE=none|cosign|notation` as not needed.
+  Not needed: the stable public surface is artifact-specific
+  `RELEASE_HELM_OCI_SIGNER=cosign|none` for OCI chart signing,
+  `RELEASE_HELM_PROVENANCE` for classic Helm provenance, and GoReleaser config
+  for binary and container signing.
 - [x] Add `doctor` checks for GPG key/keyring config based on enabled Helm
   provenance behavior.
 - [x] Add classic Helm provenance support with `helm package --sign`.
 - [x] Add `RELEASE_HELM_PROVENANCE=true|false`.
 - [x] Add GPG config keys only when classic provenance is implemented.
-- [ ] Prototype OCI Helm signing with Cosign or `helm-sigstore` against the real
-  target registry.
-- [ ] Sign OCI Helm charts by immutable digest, not just tag, if OCI signing is
+- [x] Prototype OCI Helm signing with Cosign against the chosen OCI target
+  registry.
+  Result: `make helm-oci-signing-test` passed against local Zot on 2026-07-08.
+- [x] Sign OCI Helm charts by immutable digest, not just tag, if OCI signing is
   promoted to stable support.
 - [x] Keep GoReleaser `docker_signs` as the documented path for container image
   signing.
@@ -419,6 +423,7 @@ Validation gate:
 - [x] `make verify`
 - [x] `make container-test`
 - [x] `make helm-registry-test`
+- [x] `make helm-oci-signing-test`
 - [x] `make helm-provenance-test`
 - [x] `make codeberg-smoke-test`
 - [x] Targeted end-to-end registry prototype commands for each remote backend
@@ -446,6 +451,8 @@ Validation gate:
 | 2026-07-08 | Phase 7 Helm provenance signing implemented. | Chart-enabled flows can run `helm package --sign` with explicit GPG key/keyring config, copy generated `.prov` files to `dist/charts`, and record provenance paths plus SHA-256 values in `dist/release-manifest.json`. |
 | 2026-07-08 | Phase 9 docs and examples pass completed. | Added a stable chart release env example and doc contract tests that compare the canonical usage key list and env examples against the implemented config allowlist. |
 | 2026-07-08 | Helm provenance smoke test added and passed. | `make helm-provenance-test` builds the current CLI, generates a disposable GPG key, runs chart-enabled `release-tools snapshot`, confirms manifest provenance metadata, and verifies the signed chart with `helm verify`. |
+| 2026-07-08 | OCI chart signing smoke test added and passed. | `make helm-oci-signing-test` builds the current CLI, pushes a chart to local Zot, signs the immutable digest ref with Cosign, confirms manifest signing metadata, and verifies from a clean environment with the public key. |
+| 2026-07-08 | Final plan-closure verification passed. | `make verify` passed locally; verification subagent reported `make helm-registry-test`, `make helm-provenance-test`, and `make container-test` all passed sequentially. Live Codeberg smoke verified uploaded manifest asset `release-manifest.json` for `v0.0.1783545390`. |
 
 ## Decision Log
 
@@ -465,3 +472,4 @@ Validation gate:
 | 2026-07-08 | Generate chart manifests without a new config key. | The manifest records chart package metadata only after chart packaging or upload succeeds; broader binary artifact manifests wait for GoReleaser metadata merging. |
 | 2026-07-08 | Keep chart and app version source limited to `tag` for current stable behavior. | Tag-derived versions keep binaries and charts aligned; reading `Chart.yaml` versions is useful future work but needs explicit semantics. |
 | 2026-07-08 | Treat classic Helm publishing as ChartMuseum-compatible support. | The implemented raw `POST <url>/api/charts` path works for ChartMuseum-style registries, including Forgejo/Gitea package registries, without making ChartMuseum mandatory. |
+| 2026-07-08 | Do not add generic `RELEASE_SIGN_MODE`. | A generic signing mode would be ambiguous across binaries, charts, containers, and manifests; artifact-specific signing config keeps GoReleaser-owned signing separate from Helm chart signing. |

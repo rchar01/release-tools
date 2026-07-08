@@ -1351,7 +1351,7 @@ func (a *app) runHelmOCISignatures(results []helmOCIPushResult) error {
 		if results[i].DigestRef == "" {
 			return fmt.Errorf("helm push did not report an OCI digest for %s; cannot sign by immutable digest", results[i].Package)
 		}
-		args := a.helmOCISignCommandArgs(signer, results[i].DigestRef)
+		args := a.helmOCISignCommandArgs(results[i].DigestRef)
 		cmd := runner.Command{Dir: a.repoRoot, Name: bin, Args: args, Stdout: a.stdout, Stderr: a.stderr}
 		if err := a.commandRunner().Run(cmd); err != nil {
 			return err
@@ -1362,14 +1362,8 @@ func (a *app) runHelmOCISignatures(results []helmOCIPushResult) error {
 	return nil
 }
 
-func (a *app) helmOCISignCommandArgs(signer, digestRef string) []string {
-	args := []string{}
-	switch signer {
-	case "cosign":
-		args = append(args, "sign", "--yes")
-	case "notation":
-		args = append(args, "sign")
-	}
+func (a *app) helmOCISignCommandArgs(digestRef string) []string {
+	args := []string{"sign", "--yes"}
 	args = append(args, strings.Fields(a.helmOCISignArgs())...)
 	return append(args, digestRef)
 }
@@ -2988,7 +2982,7 @@ func (a *app) helmOCISignConfigured() bool {
 func (a *app) validateHelmOCISignConfig() error {
 	signer := a.helmOCISigner()
 	switch signer {
-	case "none", "cosign", "notation":
+	case "none", "cosign":
 	default:
 		return fmt.Errorf("unsupported RELEASE_HELM_OCI_SIGNER: %s", signer)
 	}

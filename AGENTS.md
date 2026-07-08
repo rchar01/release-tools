@@ -98,7 +98,7 @@
 - `RELEASE_HELM_OCI_PLAIN_HTTP=1` appends Helm's `--plain-http` flag to OCI
   registry login and chart pushes and is intended only for explicitly trusted
   insecure registries.
-- `RELEASE_HELM_OCI_SIGNER=cosign` or `notation` signs pushed OCI charts by the
+- `RELEASE_HELM_OCI_SIGNER=cosign` signs pushed OCI charts by the
   immutable digest reported by Helm after `helm push`; signing fails if Helm does
   not report a digest.
 - `RELEASE_HELM_OCI_SIGN_ARGS` appends non-secret arguments to the selected OCI
@@ -137,10 +137,12 @@
   - `make verify`
   - `make container-test`
   - `make helm-registry-test` for Podman-backed Helm registry smoke tests
+  - `make helm-oci-signing-test` for Podman-backed Helm OCI Cosign smoke tests
   - `make helm-provenance-test` for disposable GPG-backed Helm provenance smoke
     tests
-  - `make codeberg-smoke-test` for live Codeberg smoke tests against the
-    disposable `rch/release-tools-smoke` repository
+  - `make codeberg-smoke-test` for live Codeberg release, manifest asset, and
+    optional Helm package smoke tests against the disposable
+    `rch/release-tools-smoke` repository
   - `scripts/test-errors` for focused error-message checks
 
 ## Self-Release Procedure
@@ -149,6 +151,8 @@
   tagging.
 - Use `make helm-registry-test` before releases that change Helm registry
   publishing behavior.
+- Use `make helm-oci-signing-test` before releases that change Helm OCI signing
+  behavior.
 - Use `make helm-provenance-test` before releases that change Helm provenance
   signing behavior.
 - Use `make codeberg-smoke-test` only with a token that can push to the smoke
@@ -217,10 +221,11 @@
 - GoReleaser resolution checks `GORELEASER_BIN`, then common install locations.
 - Helm is required only when `RELEASE_ARTIFACTS` includes `charts`.
 - Helm chart provenance signing uses Helm's built-in `helm package --sign` with
-  an explicit GPG key and keyring; OCI chart signing uses Cosign or Notation
-  against the immutable digest reported by Helm.
-- Docker/Podman/Cosign are required only when GoReleaser container image or
-  image-signing config is detected.
+  an explicit GPG key and keyring; OCI chart signing uses Cosign against the
+  immutable digest reported by Helm.
+- Docker/Podman are required only when GoReleaser container image config is
+  detected; Cosign is required when GoReleaser image signing config is detected
+  or `RELEASE_HELM_OCI_SIGNER=cosign` is configured.
 - Go baseline is Go 1.26 with toolchain `go1.26.4`.
 - Dev-container verification uses Podman through `scripts/in-container`; the dev
   container is the source of required development tools, including Helm.

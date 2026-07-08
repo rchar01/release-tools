@@ -1258,7 +1258,7 @@ func TestPublishFailsSigningWhenHelmPushDigestMissing(t *testing.T) {
 			"RELEASE_ARTIFACTS":           "charts",
 			"RELEASE_HELM_CHART_DIRS":     "charts/demo",
 			"RELEASE_HELM_OCI_REPOSITORY": "oci://registry.example/charts",
-			"RELEASE_HELM_OCI_SIGNER":     "notation",
+			"RELEASE_HELM_OCI_SIGNER":     "cosign",
 			"RELEASE_NOTES_MODE":          "news-md",
 			"RELEASE_NOTES_SOURCE":        "NEWS.md",
 			"RELEASE_BODY_MODE":           "none",
@@ -1274,9 +1274,40 @@ func TestPublishFailsSigningWhenHelmPushDigestMissing(t *testing.T) {
 		t.Fatalf("publish error = %v, want missing digest signing error", err)
 	}
 	for _, cmd := range fake.runCommands {
-		if cmd.Name == "/fake/notation" {
-			t.Fatalf("notation ran without digest: %#v", commandStrings(fake.runCommands))
+		if cmd.Name == "/fake/cosign" {
+			t.Fatalf("cosign ran without digest: %#v", commandStrings(fake.runCommands))
 		}
+	}
+}
+
+func TestPublishRejectsUnsupportedOCIHelmSigner(t *testing.T) {
+	dir := t.TempDir()
+	writeChart(t, filepath.Join(dir, "charts", "demo"), "demo")
+	writeFile(t, filepath.Join(dir, "NEWS.md"), "# News\n\n## v1.2.3 - 2026-07-02\n\n- release\n")
+	a := &app{
+		repoRoot: dir,
+		tmpDir:   filepath.Join(dir, ".tmp"),
+		env: map[string]string{
+			"VERSION":                     "v1.2.3",
+			"RELEASE_FORGE":               "gitea",
+			"RELEASE_TOKEN":               "token",
+			"RELEASE_ARTIFACTS":           "charts",
+			"RELEASE_HELM_CHART_DIRS":     "charts/demo",
+			"RELEASE_HELM_OCI_REPOSITORY": "oci://registry.example/charts",
+			"RELEASE_HELM_OCI_SIGNER":     "notation",
+			"RELEASE_NOTES_MODE":          "news-md",
+			"RELEASE_NOTES_SOURCE":        "NEWS.md",
+			"RELEASE_BODY_MODE":           "none",
+			"GORELEASER_BIN":              "/tools/goreleaser",
+		},
+		commands: &fakeCommandRunner{},
+		stdout:   ioDiscard(),
+		stderr:   ioDiscard(),
+	}
+
+	err := a.publish()
+	if err == nil || !strings.Contains(err.Error(), "unsupported RELEASE_HELM_OCI_SIGNER: notation") {
+		t.Fatalf("publish error = %v, want unsupported notation signer error", err)
 	}
 }
 

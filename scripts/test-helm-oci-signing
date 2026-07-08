@@ -1,0 +1,163 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
+cd "$ROOT_DIR"
+
+PODMAN="${PODMAN:-podman}"
+ZOT_IMAGE="${ZOT_IMAGE:-ghcr.io/project-zot/zot-minimal:v2.1.18}"
+COSIGN_VERSION="${COSIGN_VERSION:-2.4.1}"
+
+for tool in "$PODMAN" curl git go helm; do
+	if ! command -v "$tool" >/dev/null 2>&1; then
+		printf 'required tool not found: %s\n' "$tool" >&2
+		exit 1
+	fi
+done
+
+test_root="$ROOT_DIR/.tmp/helm-oci-signing-test"
+repo_dir="$test_root/repo"
+bin_dir="$test_root/bin"
+release_tools_bin="$bin_dir/release-tools"
+zot_container="release-tools-oci-signing-zot-$$"
+tag="v0.2.$(date +%s)"
+
+cleanup() {
+	"$PODMAN" rm -f "$zot_container" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+wait_for_http() {
+	url="$1"
+	for ((attempt = 1; attempt <= 60; attempt++)); do
+		if curl -fsS "$url" >/dev/null 2>&1; then
+			return 0
+		fi
+		sleep 1
+	done
+	printf 'timed out waiting for %s\n' "$url" >&2
+	return 1
+}
+
+cosign_arch() {
+	case "$(uname -m)" in
+	x86_64|amd64) printf 'amd64\n' ;;
+	aarch64|arm64) printf 'arm64\n' ;;
+	*)
+		printf 'unsupported cosign architecture: %s\n' "$(uname -m)" >&2
+		exit 1
+		;;
+	esac
+}
+
+ensure_cosign() {
+	if command -v cosign >/dev/null 2>&1; then
+		command -v cosign
+		return 0
+	fi
+	local arch
+	arch="$(cosign_arch)"
+	mkdir -p "$bin_dir"
+	curl -fsSL \
+		"https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-${arch}" \
+		-o "$bin_dir/cosign"
+	chmod +x "$bin_dir/cosign"
+	printf '%s\n' "$bin_dir/cosign"
+}
+
+rm -rf "$test_root"
+mkdir -p "$bin_dir" "$repo_dir/charts/demo" "$ROOT_DIR/.tmp/go-build" "$ROOT_DIR/.tmp/go-cache"
+cosign_bin="$(ensure_cosign)"
+
+CGO_ENABLED=0 \
+	GOTMPDIR="$ROOT_DIR/.tmp/go-build" \
+	GOCACHE="$ROOT_DIR/.tmp/go-cache" \
+	go build -o "$release_tools_bin" ./cmd/release-tools
+
+"$PODMAN" run --detach --name "$zot_container" \
+	--publish 127.0.0.1::5000 \
+	"$ZOT_IMAGE" >/dev/null
+zot_port_output="$("$PODMAN" port "$zot_container" 5000/tcp)"
+zot_port="${zot_port_output##*:}"
+wait_for_http "http://127.0.0.1:$zot_port/v2/"
+
+COSIGN_PASSWORD="" "$cosign_bin" generate-key-pair \
+	--output-key-prefix "$test_root/cosign-key" >/dev/null
+
+cat >"$bin_dir/goreleaser" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == --version ]]; then
+	printf 'goreleaser stub\n'
+	exit 0
+fi
+exit 0
+EOF
+chmod +x "$bin_dir/goreleaser"
+
+cat >"$repo_dir/.goreleaser.yaml" <<'EOF'
+version: 2
+EOF
+cat >"$repo_dir/charts/demo/Chart.yaml" <<'EOF'
+apiVersion: v2
+name: demo
+version: 0.0.0
+appVersion: "0.0.0"
+EOF
+cat >"$repo_dir/NEWS.md" <<EOF
+# News
+
+## $tag - 2026-07-08
+
+- Smoke test Helm OCI chart digest signing.
+EOF
+cat >"$repo_dir/.release-tools.env" <<EOF
+RELEASE_PROJECT=demo
+RELEASE_FORGE=codeberg
+RELEASE_OWNER=owner
+RELEASE_REPO=demo
+RELEASE_ARTIFACTS=charts
+RELEASE_HELM_CHART_DIRS=charts/demo
+RELEASE_HELM_VERSION_FROM=tag
+RELEASE_HELM_APP_VERSION_FROM=tag
+RELEASE_HELM_OCI_REPOSITORY=oci://localhost:$zot_port/owner/charts
+RELEASE_HELM_OCI_PLAIN_HTTP=1
+RELEASE_HELM_OCI_SIGNER=cosign
+RELEASE_HELM_OCI_SIGN_ARGS=--key $test_root/cosign-key.key --tlog-upload=false --allow-insecure-registry
+RELEASE_NOTES_MODE=news-md
+RELEASE_NOTES_SOURCE=NEWS.md
+RELEASE_BODY_MODE=none
+GORELEASER_BIN=$bin_dir/goreleaser
+EOF
+
+git -C "$repo_dir" init --quiet
+git -C "$repo_dir" config user.email test@example.invalid
+git -C "$repo_dir" config user.name 'Test User'
+git -C "$repo_dir" add .goreleaser.yaml .release-tools.env NEWS.md charts/demo/Chart.yaml
+git -C "$repo_dir" commit --quiet -m 'chart OCI signing smoke fixture'
+git -C "$repo_dir" tag "$tag"
+
+PATH="$bin_dir:$PATH" \
+	COSIGN_PASSWORD="" \
+	RELEASE_REPO_ROOT="$repo_dir" \
+	RELEASE_TOKEN=forge-token \
+	"$release_tools_bin" publish-tag "$tag" >/dev/null
+
+manifest="$repo_dir/dist/release-manifest.json"
+test -f "$manifest"
+grep -q '"oci_signer": "cosign"' "$manifest"
+digest_ref="$(grep -m1 '"oci_digest_ref":' "$manifest" | sed -E 's/.*"oci_digest_ref": "([^"]+)".*/\1/')"
+if [[ -z "$digest_ref" || "$digest_ref" != *@sha256:* ]]; then
+	printf 'manifest did not contain an immutable OCI digest ref\n' >&2
+	exit 1
+fi
+
+verify_home="$test_root/cosign-verify-home"
+mkdir -p "$verify_home"
+HOME="$verify_home" "$cosign_bin" verify \
+	--key "$test_root/cosign-key.pub" \
+	--allow-insecure-registry \
+	--insecure-ignore-tlog=true \
+	"$digest_ref" >/dev/null
+
+printf 'Helm OCI signing smoke test passed for %s\n' "$tag"

@@ -191,8 +191,8 @@ to that OCI repository after GoReleaser succeeds. Set
 environment-only `RELEASE_HELM_OCI_PASSWORD` when `release-tools` should run
 `helm registry login` with a temporary Helm registry config before pushing.
 Without those auth settings, Helm must already be authenticated. Set
-`RELEASE_HELM_OCI_SIGNER=cosign` or `notation` to sign pushed OCI charts by the
-immutable digest reported by Helm; optional non-secret signer flags go in
+`RELEASE_HELM_OCI_SIGNER=cosign` to sign pushed OCI charts by the immutable
+digest reported by Helm; optional non-secret signer flags go in
 `RELEASE_HELM_OCI_SIGN_ARGS`. Signing fails if Helm does not report a digest, so
 the CLI never signs a mutable chart tag. Set
 `RELEASE_HELM_PROVENANCE=1` with `RELEASE_HELM_GPG_KEY` and
@@ -267,6 +267,7 @@ Common maintainer commands:
 make verify
 make container-test
 make helm-registry-test
+make helm-oci-signing-test
 make helm-provenance-test
 make codeberg-smoke-test
 make build
@@ -296,6 +297,14 @@ containers:
 make helm-registry-test
 ```
 
+Run a Podman-backed Helm OCI signing smoke test against local Zot. This builds
+the current CLI, generates a temporary Cosign key pair, signs the pushed chart by
+digest, and verifies the signature from a clean environment:
+
+```bash
+make helm-oci-signing-test
+```
+
 Run a disposable GPG-backed Helm provenance smoke test. This builds the current
 CLI, generates a temporary signing key, runs chart-enabled `release-tools
 snapshot`, and verifies the signed chart with `helm verify`:
@@ -305,8 +314,9 @@ make helm-provenance-test
 ```
 
 Run the live Codeberg smoke test against `rch/release-tools-smoke` with a token
-that can push to that repository and create releases. Package-registry access is
-optional and enables the Helm upload portion of the smoke test:
+that can push to that repository and create releases. The smoke verifies release
+body patching and manifest asset upload. Package-registry access is optional and
+enables the Helm upload portion of the smoke test:
 
 ```bash
 make codeberg-smoke-test
@@ -332,7 +342,8 @@ make verify
 make container-test
 ```
 
-Also run `make helm-registry-test` for Helm registry publishing changes and
+Also run `make helm-registry-test` for Helm registry publishing changes,
+`make helm-oci-signing-test` for Helm OCI signing changes, and
 `make helm-provenance-test` for Helm provenance signing changes.
 
 After committing and pushing the release prep, create and push the tag:
