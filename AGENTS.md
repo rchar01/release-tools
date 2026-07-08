@@ -52,6 +52,7 @@
   - `RELEASE_HELM_CHART_DIRS`
   - `RELEASE_HELM_VERSION_FROM`
   - `RELEASE_HELM_APP_VERSION_FROM`
+  - `RELEASE_HELM_OCI_REPOSITORY`
   - `RELEASE_NOTES_SOURCE`
   - `RELEASE_NOTES_MODE`
   - `RELEASE_BODY_MODE`
@@ -74,6 +75,8 @@
 - `RELEASE_HELM_CHART_DIRS` is required when `RELEASE_ARTIFACTS` includes
   `charts`.
 - Supported Helm version source values are currently `tag` only.
+- `RELEASE_HELM_OCI_REPOSITORY` enables `helm push` to an OCI repository during
+  `publish` and `publish-tag`; Helm registry authentication is caller-owned.
 
 ## Commands
 - CLI:
@@ -115,7 +118,8 @@
   --clean`; when charts are enabled it also runs `helm package` into
   `dist/charts`.
 - `publish` and `publish-tag` package charts before GoReleaser publish starts;
-  remote chart upload is not implemented yet.
+  when `RELEASE_HELM_OCI_REPOSITORY` is set they push packaged charts with
+  `helm push` after GoReleaser succeeds.
 - `publish-tag` publishes from a clean temporary clone of the exact tag.
 - GoReleaser must run from the release repository root.
 - unset `RELEASE_ARTIFACTS` keeps current binaries-only behavior.

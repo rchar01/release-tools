@@ -62,9 +62,9 @@ consumer repositories.
 
 ## Open Questions
 
-- [ ] Which Helm target should be implemented first after local chart packaging:
+- [x] Which Helm target should be implemented first after local chart packaging:
   OCI registry or Forgejo/Gitea classic Helm package registry?
-- [ ] Should `release-tools` run `helm registry login` with temporary config, or
+- [x] Should `release-tools` run `helm registry login` with temporary config, or
   should it require the caller to pre-authenticate for OCI registries?
 - [ ] Should chart version always come from the release tag, or do we need a
   supported mode where chart version and app version differ?
@@ -88,7 +88,6 @@ Candidate keys for later milestones, not stable until implemented:
 
 ```sh
 RELEASE_HELM_OCI_REPOSITORY=oci://codeberg.org/myowner/charts
-RELEASE_HELM_OCI_TOKEN_FILE=~/.config/registry/token
 
 RELEASE_HELM_CLASSIC_MODE=none
 RELEASE_HELM_CLASSIC_URL=https://codeberg.org/api/packages/myowner/helm
@@ -236,15 +235,16 @@ idempotency semantics.
 
 Candidate A: Helm OCI registry.
 
-- [ ] Add `RELEASE_HELM_OCI_REPOSITORY`.
-- [ ] Add `RELEASE_HELM_OCI_TOKEN_FILE` or equivalent explicit auth config.
-- [ ] Use temporary Helm config and registry config paths.
-- [ ] Decide whether `release-tools` performs `helm registry login` or requires
+- [x] Add `RELEASE_HELM_OCI_REPOSITORY`.
+- [x] Defer OCI token config until `release-tools` performs registry login.
+- [x] Defer temporary Helm config and registry config paths until
+  `release-tools` performs registry login.
+- [x] Decide whether `release-tools` performs `helm registry login` or requires
   pre-authenticated Helm registry config.
-- [ ] Run `helm push <chart>.tgz oci://...` for each packaged chart.
+- [x] Run `helm push <chart>.tgz oci://...` for each packaged chart.
 - [ ] Capture the resulting chart reference when Helm output exposes it
   reliably.
-- [ ] Define behavior when a chart version already exists.
+- [x] Define behavior when a chart version already exists.
 - [ ] Prototype against the intended real registry before documenting support as
   stable.
 
@@ -261,8 +261,8 @@ Candidate B: Forgejo/Gitea classic Helm package registry.
 
 Validation gate:
 
-- [ ] Unit tests for auth resolution and command/API construction.
-- [ ] Stubbed publish tests for success, existing artifact, and auth failure.
+- [x] Unit tests for command construction.
+- [x] Stubbed publish tests for success and command ordering.
 - [ ] Manual or container-backed end-to-end prototype against the chosen target.
 - [ ] `make verify`
 - [ ] `make container-test`
@@ -404,6 +404,7 @@ Validation gate:
 | 2026-07-08 | Phase 2 artifact config implemented. | Added `RELEASE_ARTIFACTS` parsing, `chartsEnabled`, `doctor` reporting, focused artifact/doctor tests, and `scripts/test-errors` coverage. Verification subagent reported `go test ./...`, `scripts/test-errors`, and `make verify` passed. |
 | 2026-07-08 | Phase 3 local Helm behavior implemented. | Added Helm chart config, local check/package commands, dev-container Helm install, unit tests, `scripts/test-errors`, and stub Helm/GoReleaser integration coverage in `scripts/test`; chart paths are constrained inside the repo including symlink targets; `make verify` and `make container-test` passed. |
 | 2026-07-08 | Phase 4 publish sequencing implemented. | Added chart packaging before GoReleaser publish and publish-tag, clone-local packaging tests, failure-ordering coverage, and stub publish coverage in `scripts/test`; `make container-test` passed. |
+| 2026-07-08 | Phase 5 OCI backend started. | Added `RELEASE_HELM_OCI_REPOSITORY`, `helm push` after successful GoReleaser publish, unit ordering coverage, and stub publish coverage; real-registry prototype still pending. |
 
 ## Decision Log
 
@@ -412,3 +413,6 @@ Validation gate:
 | 2026-07-08 | Keep `release-tools` as an orchestrator rather than a replacement for GoReleaser, Helm, or signing tools. | Preserves current architecture and keeps repo-specific release definitions in consumer repositories. |
 | 2026-07-08 | Start with local Helm check/package before remote publishing or signing. | Lowest-risk milestone with clear validation and no registry side effects. |
 | 2026-07-08 | Do not silently reuse `RELEASE_TOKEN` for registries and package repositories. | Forge release tokens and registry/package tokens often have different scopes. |
+| 2026-07-08 | Implement OCI chart publishing before classic Forgejo/Gitea packages. | Helm-native `helm push` is the narrowest first remote backend. |
+| 2026-07-08 | Require pre-authenticated Helm for OCI chart publishing for now. | Avoids mutating user-global Helm config and avoids adding token config before temporary auth handling is designed. |
+| 2026-07-08 | Treat existing OCI chart versions as registry-owned errors. | Helm docs do not document overwrite semantics or a force flag, so `release-tools` fails on `helm push` errors rather than trying to overwrite. |

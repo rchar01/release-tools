@@ -16,6 +16,8 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and `helm package` into `dist/charts` during snapshots
 - added chart packaging before GoReleaser starts `publish` and `publish-tag`,
   with `publish-tag` packaging charts from the clean temporary tag clone
+- added `RELEASE_HELM_OCI_REPOSITORY` for pushing packaged charts to a Helm OCI
+  repository after GoReleaser publish succeeds
 
 ## [3.3.0] - 2026-07-02
 

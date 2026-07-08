@@ -175,9 +175,11 @@ the CLI uses `binaries`; supported values are `binaries` and `charts`.
 
 When `charts` is enabled, `release-tools check` runs Helm dependency and lint
 checks, `release-tools snapshot` packages charts into `dist/charts`, and
-publish commands package charts before GoReleaser publishes release assets.
-Uploading charts to a chart repository and signing charts are intentionally left
-for later artifact orchestration phases.
+publish commands package charts before GoReleaser publishes release assets. If
+`RELEASE_HELM_OCI_REPOSITORY` is set, publish commands push packaged charts to
+that OCI repository after GoReleaser succeeds. Helm registry login is caller
+owned; `release-tools` does not manage OCI credentials yet. Chart signing is
+left for a later artifact orchestration phase.
 
 For the full public config contract, token resolution rules, and consumer setup
 guide, see [`docs/usage.md`](docs/usage.md).

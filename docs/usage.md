@@ -101,6 +101,7 @@ Supported `.release-tools.env` keys:
 - `RELEASE_HELM_CHART_DIRS`
 - `RELEASE_HELM_VERSION_FROM`
 - `RELEASE_HELM_APP_VERSION_FROM`
+- `RELEASE_HELM_OCI_REPOSITORY`
 - `RELEASE_NOTES_SOURCE`
 - `RELEASE_NOTES_MODE`
 - `RELEASE_BODY_MODE`
@@ -139,6 +140,7 @@ RELEASE_ARTIFACTS=binaries,charts
 RELEASE_HELM_CHART_DIRS=charts/myapp
 RELEASE_HELM_VERSION_FROM=tag
 RELEASE_HELM_APP_VERSION_FROM=tag
+# RELEASE_HELM_OCI_REPOSITORY=oci://registry.example.com/myowner/charts
 ```
 
 Only `tag` is currently supported for Helm chart and app versions. A release tag
@@ -153,11 +155,19 @@ Chart-enabled commands add local Helm behavior:
   `dist/charts`
 - `release-tools publish` and `release-tools publish-tag` package charts before
   GoReleaser publishes release assets
+- when `RELEASE_HELM_OCI_REPOSITORY` is set, `publish` and `publish-tag` run
+  `helm push <chart>.tgz oci://...` for each packaged chart after GoReleaser
+  succeeds
 
-Uploading charts to a chart repository and signing charts are not part of this
-local chart milestone.
 Snapshot chart packaging needs `VERSION` or an exact current tag so the chart
 version can be derived from the release tag.
+
+`RELEASE_HELM_OCI_REPOSITORY` must be an `oci://` repository path such as
+`oci://registry.example.com/myowner/charts`. Do not include the chart name or
+version tag; Helm derives those from the packaged chart. The caller must run
+`helm registry login` or otherwise provide Helm registry credentials before
+publishing to a private registry. `release-tools` does not read chart registry
+tokens or run `helm registry login` yet. Chart signing is not implemented yet.
 
 Required for release commands:
 

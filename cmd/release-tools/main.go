@@ -12,7 +12,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
 	"codeberg.org/rch/release-tools/internal/config"
 	"codeberg.org/rch/release-tools/internal/runner"
@@ -31,6 +33,7 @@ var allowedConfigKeys = map[string]bool{
 	"RELEASE_HELM_CHART_DIRS":       true,
 	"RELEASE_HELM_VERSION_FROM":     true,
 	"RELEASE_HELM_APP_VERSION_FROM": true,
+	"RELEASE_HELM_OCI_REPOSITORY":   true,
 	"RELEASE_NOTES_SOURCE":          true,
 	"RELEASE_NOTES_MODE":            true,
 	"RELEASE_BODY_MODE":             true,
@@ -66,6 +69,11 @@ type app struct {
 	commands    runner.Runner
 	stdout      io.Writer
 	stderr      io.Writer
+}
+
+type fileState struct {
+	size    int64
+	modTime time.Time
 }
 
 func main() {
@@ -447,7 +455,8 @@ func (a *app) snapshot() error {
 	if err := a.runGoreleaser("release", "--snapshot", "--skip=publish", "--clean"); err != nil {
 		return err
 	}
-	return a.runHelmPackages(chartVersion)
+	_, err := a.runHelmPackages(chartVersion)
+	return err
 }
 
 func (a *app) doctor() error {
@@ -526,6 +535,9 @@ func (a *app) doctor() error {
 		a.log("Helm chart dirs: %s", strings.Join(dirs, ", "))
 		a.log("Helm version source: %s", a.helmVersionFrom())
 		a.log("Helm app version source: %s", a.helmAppVersionFrom())
+		if repository := a.helmOCIRepository(); repository != "" {
+			a.log("Helm OCI repository: %s", repository)
+		}
 	}
 	a.log("Release notes mode: %s", notesMode)
 	a.log("Release body mode: %s", bodyMode)
@@ -650,34 +662,105 @@ func (a *app) runHelmChecks() error {
 	return nil
 }
 
-func (a *app) runHelmPackages(version string) error {
+func (a *app) runHelmPackages(version string) ([]string, error) {
 	if enabled, err := a.chartsEnabled(); err != nil {
-		return err
+		return nil, err
 	} else if !enabled {
-		return nil
+		return nil, nil
 	}
 	if version == "" {
 		resolved, err := a.helmVersion()
 		if err != nil {
-			return err
+			return nil, err
 		}
 		version = resolved
 	}
 	appVersion := version
 	helmBin, err := a.resolveHelmBin()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	dirs, err := a.helmChartDirs()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	destination := filepath.Join("dist", "charts")
 	if err := os.MkdirAll(filepath.Join(a.repoRoot, destination), 0o755); err != nil {
+		return nil, err
+	}
+	packages := []string{}
+	for _, dir := range dirs {
+		before, err := a.helmPackageFiles(destination, version)
+		if err != nil {
+			return nil, err
+		}
+		if err := a.runHelm(helmBin, "package", dir, "--version", version, "--app-version", appVersion, "--destination", destination); err != nil {
+			return nil, err
+		}
+		after, err := a.helmPackageFiles(destination, version)
+		if err != nil {
+			return nil, err
+		}
+		chartPackage, err := changedHelmPackage(before, after)
+		if err != nil {
+			return nil, err
+		}
+		packages = append(packages, chartPackage)
+	}
+	return packages, nil
+}
+
+func (a *app) helmPackageFiles(destination, version string) (map[string]fileState, error) {
+	entries, err := os.ReadDir(filepath.Join(a.repoRoot, destination))
+	if err != nil {
+		return nil, err
+	}
+	packages := map[string]fileState{}
+	suffix := "-" + version + ".tgz"
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), suffix) {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return nil, err
+		}
+		packages[filepath.Join(destination, entry.Name())] = fileState{size: info.Size(), modTime: info.ModTime()}
+	}
+	return packages, nil
+}
+
+func changedHelmPackage(before, after map[string]fileState) (string, error) {
+	changed := []string{}
+	for path, state := range after {
+		if previous, ok := before[path]; !ok || previous != state {
+			changed = append(changed, path)
+		}
+	}
+	sort.Strings(changed)
+	if len(changed) != 1 {
+		return "", fmt.Errorf("expected one packaged Helm chart, found %d", len(changed))
+	}
+	return changed[0], nil
+}
+
+func (a *app) runHelmOCIPushes(packages []string) error {
+	if len(packages) == 0 {
+		return nil
+	}
+	repository := a.helmOCIRepository()
+	if repository == "" {
+		return nil
+	}
+	if _, err := a.helmOCIRepositoryChecked(); err != nil {
 		return err
 	}
-	for _, dir := range dirs {
-		if err := a.runHelm(helmBin, "package", dir, "--version", version, "--app-version", appVersion, "--destination", destination); err != nil {
+	helmBin, err := a.resolveHelmBin()
+	if err != nil {
+		return err
+	}
+	for _, chartPackage := range packages {
+		if err := a.runHelm(helmBin, "push", chartPackage, repository); err != nil {
 			return err
 		}
 	}
@@ -705,13 +788,17 @@ func (a *app) publish() error {
 	if err != nil {
 		return err
 	}
-	if err := a.runHelmPackages(chartVersionFromTag(tag)); err != nil {
+	packages, err := a.runHelmPackages(chartVersionFromTag(tag))
+	if err != nil {
 		return err
 	}
 	if err := a.runGoreleaserWithToken(token, "release", "--clean", "--release-notes", notesFile); err != nil {
 		return err
 	}
-	return a.updateReleaseBody(tag, notesFile, token)
+	if err := a.updateReleaseBody(tag, notesFile, token); err != nil {
+		return err
+	}
+	return a.runHelmOCIPushes(packages)
 }
 
 func (a *app) publishTag(tag string) error {
@@ -749,7 +836,8 @@ func (a *app) publishTag(tag string) error {
 	if err != nil {
 		return err
 	}
-	if err := cloneApp.runHelmPackages(chartVersionFromTag(tag)); err != nil {
+	packages, err := cloneApp.runHelmPackages(chartVersionFromTag(tag))
+	if err != nil {
 		return err
 	}
 
@@ -758,6 +846,9 @@ func (a *app) publishTag(tag string) error {
 		return err
 	}
 	if err := cloneApp.updateReleaseBody(tag, notesFile, token); err != nil {
+		return err
+	}
+	if err := cloneApp.runHelmOCIPushes(packages); err != nil {
 		return err
 	}
 	a.log("Published %s", tag)
@@ -1310,9 +1401,15 @@ func (a *app) validateChartConfig() error {
 	if _, err := a.helmAppVersionFromChecked(); err != nil {
 		return err
 	}
+	if _, err := a.helmOCIRepositoryChecked(); err != nil {
+		return err
+	}
 	enabled, err := a.chartsEnabled()
 	if err != nil {
 		return err
+	}
+	if !enabled && a.helmOCIRepository() != "" {
+		return errors.New("RELEASE_HELM_OCI_REPOSITORY requires RELEASE_ARTIFACTS to include charts")
 	}
 	if !enabled {
 		return nil
@@ -1423,6 +1520,21 @@ func (a *app) helmAppVersionFromChecked() (string, error) {
 		return "", fmt.Errorf("unsupported RELEASE_HELM_APP_VERSION_FROM: %s", value)
 	}
 	return value, nil
+}
+
+func (a *app) helmOCIRepository() string {
+	return strings.TrimSpace(a.env["RELEASE_HELM_OCI_REPOSITORY"])
+}
+
+func (a *app) helmOCIRepositoryChecked() (string, error) {
+	repository := a.helmOCIRepository()
+	if repository == "" {
+		return "", nil
+	}
+	if strings.ContainsAny(repository, " \t\r\n") || !strings.HasPrefix(repository, "oci://") || strings.TrimPrefix(repository, "oci://") == "" {
+		return "", fmt.Errorf("RELEASE_HELM_OCI_REPOSITORY must be an oci:// repository: %s", repository)
+	}
+	return repository, nil
 }
 
 func (a *app) helmVersion() (string, error) {

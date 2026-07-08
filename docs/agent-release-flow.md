@@ -140,18 +140,20 @@ Reason:
 ### Local Chart Behavior Is Helm-Owned
 
 When `RELEASE_ARTIFACTS` includes `charts`, the CLI validates chart directories
-and invokes Helm for local chart work. `check` runs Helm dependency and lint
-checks. `snapshot` packages charts into `dist/charts` using the release tag as
-the chart and app version source. Publish commands package charts before
-GoReleaser publishes release assets, but they do not upload charts to a chart
-repository yet.
+and invokes Helm for chart work. `check` runs Helm dependency and lint checks.
+`snapshot` packages charts into `dist/charts` using the release tag as the chart
+and app version source. Publish commands package charts before GoReleaser
+publishes release assets. If `RELEASE_HELM_OCI_REPOSITORY` is set, publish
+commands push packaged charts to that OCI repository after GoReleaser succeeds.
 
 Reason:
 
 - Helm remains the chart packaging authority
 - local checks and packages can be validated before remote publishing exists
-- remote chart publishing and signing can be added without changing the command
-  surface
+- OCI publishing uses Helm's native `helm push` behavior
+- chart registry authentication remains caller-owned until temporary Helm auth
+  handling is implemented
+- chart signing can be added without changing the command surface
 
 ### Go Preflight Is Optional
 
@@ -177,7 +179,8 @@ When charts are enabled, it also packages charts into `dist/charts`.
 
 `release-tools publish` and `release-tools publish-tag` package charts before
 GoReleaser publish starts. `publish-tag` performs that package step inside the
-clean temporary tag clone.
+clean temporary tag clone. When OCI chart publishing is configured, they push
+the packaged charts after GoReleaser succeeds.
 
 Reason:
 
@@ -188,6 +191,9 @@ Reason:
   chart versions can be derived from the tag
 - chart-enabled publish commands fail before GoReleaser publish if local chart
   packaging fails
+- OCI chart push failures happen after GoReleaser publish and release body
+  patching have succeeded, so maintainers may need to retry chart publishing
+  after fixing registry auth or registry-side issues
 
 ## What To Watch Out For
 

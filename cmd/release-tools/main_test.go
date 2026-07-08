@@ -285,13 +285,14 @@ func TestDoctorReportsArtifacts(t *testing.T) {
 	a := &app{
 		repoRoot: dir,
 		env: map[string]string{
-			"RELEASE_PROJECT":         "demo",
-			"RELEASE_OWNER":           "owner",
-			"RELEASE_ARTIFACTS":       "binaries, charts",
-			"RELEASE_HELM_CHART_DIRS": "charts/demo",
-			"RELEASE_NOTES_MODE":      "none",
-			"RELEASE_BODY_MODE":       "none",
-			"GORELEASER_BIN":          "/tools/goreleaser",
+			"RELEASE_PROJECT":             "demo",
+			"RELEASE_OWNER":               "owner",
+			"RELEASE_ARTIFACTS":           "binaries, charts",
+			"RELEASE_HELM_CHART_DIRS":     "charts/demo",
+			"RELEASE_HELM_OCI_REPOSITORY": "oci://registry.example/charts",
+			"RELEASE_NOTES_MODE":          "none",
+			"RELEASE_BODY_MODE":           "none",
+			"GORELEASER_BIN":              "/tools/goreleaser",
 		},
 		commands: &fakeCommandRunner{combinedOutput: []byte("GitVersion: v2.16.0\n")},
 		stdout:   &stdout,
@@ -305,6 +306,9 @@ func TestDoctorReportsArtifacts(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "[INFO] Helm chart dirs: charts/demo\n") {
 		t.Fatalf("doctor output = %q, want chart dir line", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "[INFO] Helm OCI repository: oci://registry.example/charts\n") {
+		t.Fatalf("doctor output = %q, want OCI repository line", stdout.String())
 	}
 }
 
@@ -404,6 +408,142 @@ func TestPublishPackagesHelmChartsBeforeGoreleaser(t *testing.T) {
 	}
 	if !strings.HasPrefix(got[1], "/tools/goreleaser --config .goreleaser.yaml release --clean --release-notes ") {
 		t.Fatalf("second command = %q, want goreleaser publish", got[1])
+	}
+}
+
+func TestPublishPushesHelmChartsToOCIAfterGoreleaser(t *testing.T) {
+	dir := t.TempDir()
+	writeChart(t, filepath.Join(dir, "charts", "demo"), "demo")
+	writeFile(t, filepath.Join(dir, "NEWS.md"), "# News\n\n## v1.2.3 - 2026-07-02\n\n- release\n")
+	fake := &fakeCommandRunner{}
+	a := &app{
+		repoRoot: dir,
+		tmpDir:   filepath.Join(dir, ".tmp"),
+		env: map[string]string{
+			"VERSION":                     "v1.2.3",
+			"RELEASE_FORGE":               "gitea",
+			"RELEASE_TOKEN":               "token",
+			"RELEASE_ARTIFACTS":           "charts",
+			"RELEASE_HELM_CHART_DIRS":     "charts/demo",
+			"RELEASE_HELM_OCI_REPOSITORY": "oci://registry.example/charts",
+			"RELEASE_NOTES_MODE":          "news-md",
+			"RELEASE_NOTES_SOURCE":        "NEWS.md",
+			"RELEASE_BODY_MODE":           "none",
+			"GORELEASER_BIN":              "/tools/goreleaser",
+		},
+		commands: fake,
+		stdout:   ioDiscard(),
+		stderr:   ioDiscard(),
+	}
+
+	if err := a.publish(); err != nil {
+		t.Fatal(err)
+	}
+	got := commandStrings(fake.runCommands)
+	if len(got) != 3 {
+		t.Fatalf("commands = %#v, want 3 commands", got)
+	}
+	if got[0] != "/fake/helm package charts/demo --version 1.2.3 --app-version 1.2.3 --destination dist/charts" {
+		t.Fatalf("first command = %q, want helm package", got[0])
+	}
+	if !strings.HasPrefix(got[1], "/tools/goreleaser --config .goreleaser.yaml release --clean --release-notes ") {
+		t.Fatalf("second command = %q, want goreleaser publish", got[1])
+	}
+	if got[2] != "/fake/helm push dist/charts/demo-1.2.3.tgz oci://registry.example/charts" {
+		t.Fatalf("third command = %q, want helm OCI push", got[2])
+	}
+}
+
+func TestPublishPatchesReleaseBodyBeforeFailingHelmOCIPush(t *testing.T) {
+	dir := t.TempDir()
+	writeChart(t, filepath.Join(dir, "charts", "demo"), "demo")
+	writeFile(t, filepath.Join(dir, "NEWS.md"), "# News\n\n## v1.2.3 - 2026-07-02\n\n- release\n")
+	patched := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/owner/demo/releases/tags/v1.2.3":
+			_, _ = w.Write([]byte(`{"id":42}`))
+		case r.Method == http.MethodPatch && r.URL.Path == "/repos/owner/demo/releases/42":
+			patched = true
+			_, _ = w.Write([]byte(`{}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.String())
+		}
+	}))
+	defer server.Close()
+	fake := &fakeCommandRunner{}
+	fake.onRun = func(cmd runner.Command) error {
+		if cmd.Name == "/fake/helm" && len(cmd.Args) > 0 && cmd.Args[0] == "push" {
+			return errors.New("helm push failed")
+		}
+		return nil
+	}
+	a := &app{
+		repoRoot: dir,
+		tmpDir:   filepath.Join(dir, ".tmp"),
+		env: map[string]string{
+			"VERSION":                     "v1.2.3",
+			"RELEASE_FORGE":               "gitea",
+			"RELEASE_API_URL":             server.URL,
+			"RELEASE_OWNER":               "owner",
+			"RELEASE_PROJECT":             "demo",
+			"RELEASE_TOKEN":               "token",
+			"RELEASE_ARTIFACTS":           "charts",
+			"RELEASE_HELM_CHART_DIRS":     "charts/demo",
+			"RELEASE_HELM_OCI_REPOSITORY": "oci://registry.example/charts",
+			"RELEASE_NOTES_MODE":          "news-md",
+			"RELEASE_NOTES_SOURCE":        "NEWS.md",
+			"RELEASE_BODY_MODE":           "patch",
+			"GORELEASER_BIN":              "/tools/goreleaser",
+		},
+		commands: fake,
+		stdout:   ioDiscard(),
+		stderr:   ioDiscard(),
+	}
+
+	if err := a.publish(); err == nil {
+		t.Fatal("expected helm push error")
+	}
+	if !patched {
+		t.Fatal("release body was not patched before helm push failed")
+	}
+}
+
+func TestPublishPushesDiscoveredHelmPackagePath(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "NEWS.md"), "# News\n\n## v1.2.3 - 2026-07-02\n\n- release\n")
+	chartDir := filepath.Join(dir, "charts", "demo")
+	if err := os.MkdirAll(chartDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(chartDir, "Chart.yaml"), "apiVersion: v2\nname: published-name # inline comment\nversion: 0.0.0\n")
+	fake := &fakeCommandRunner{}
+	a := &app{
+		repoRoot: dir,
+		tmpDir:   filepath.Join(dir, ".tmp"),
+		env: map[string]string{
+			"VERSION":                     "v1.2.3",
+			"RELEASE_FORGE":               "gitea",
+			"RELEASE_TOKEN":               "token",
+			"RELEASE_ARTIFACTS":           "charts",
+			"RELEASE_HELM_CHART_DIRS":     "charts/demo",
+			"RELEASE_HELM_OCI_REPOSITORY": "oci://registry.example/charts",
+			"RELEASE_NOTES_MODE":          "news-md",
+			"RELEASE_NOTES_SOURCE":        "NEWS.md",
+			"RELEASE_BODY_MODE":           "none",
+			"GORELEASER_BIN":              "/tools/goreleaser",
+		},
+		commands: fake,
+		stdout:   ioDiscard(),
+		stderr:   ioDiscard(),
+	}
+
+	if err := a.publish(); err != nil {
+		t.Fatal(err)
+	}
+	got := commandStrings(fake.runCommands)
+	if got[len(got)-1] != "/fake/helm push dist/charts/published-name-1.2.3.tgz oci://registry.example/charts" {
+		t.Fatalf("last command = %q, want discovered helm package path", got[len(got)-1])
 	}
 }
 
@@ -508,6 +648,66 @@ func TestPublishTagPackagesHelmChartsFromClone(t *testing.T) {
 	}
 	if helmIndex > goreleaserIndex {
 		t.Fatalf("helm package command ran after goreleaser: %#v", commandStrings(fake.runCommands))
+	}
+}
+
+func TestPublishTagPushesHelmChartsFromClone(t *testing.T) {
+	dir := t.TempDir()
+	repo := filepath.Join(dir, "repo")
+	clone := filepath.Join(dir, ".tmp", "release-v1.2.3")
+	fake := &fakeCommandRunner{}
+	fake.onRun = func(cmd runner.Command) error {
+		if cmd.Name == "git" && len(cmd.Args) > 0 && cmd.Args[0] == "clone" {
+			writeChart(t, filepath.Join(clone, "charts", "demo"), "demo")
+			writeFile(t, filepath.Join(clone, "NEWS.md"), "# News\n\n## v1.2.3 - 2026-07-02\n\n- release\n")
+			writeFile(t, filepath.Join(clone, ".goreleaser.yaml"), "version: 2\n")
+		}
+		return nil
+	}
+	a := &app{
+		repoRoot: repo,
+		tmpDir:   filepath.Join(dir, ".tmp"),
+		env: map[string]string{
+			"RELEASE_FORGE":               "gitea",
+			"RELEASE_TOKEN":               "token",
+			"RELEASE_ARTIFACTS":           "charts",
+			"RELEASE_HELM_CHART_DIRS":     "charts/demo",
+			"RELEASE_HELM_OCI_REPOSITORY": "oci://registry.example/charts",
+			"RELEASE_NOTES_MODE":          "news-md",
+			"RELEASE_NOTES_SOURCE":        "NEWS.md",
+			"RELEASE_BODY_MODE":           "none",
+			"GORELEASER_BIN":              "/tools/goreleaser",
+		},
+		commands: fake,
+		stdout:   ioDiscard(),
+		stderr:   ioDiscard(),
+	}
+
+	if err := a.publishTag("v1.2.3"); err != nil {
+		t.Fatal(err)
+	}
+	var goreleaserIndex, pushIndex = -1, -1
+	for i := range fake.runCommands {
+		cmd := fake.runCommands[i]
+		if cmd.Name == "/tools/goreleaser" {
+			goreleaserIndex = i
+		}
+		if cmd.Name == "/fake/helm" && len(cmd.Args) > 0 && cmd.Args[0] == "push" {
+			pushIndex = i
+			if cmd.Dir != clone {
+				t.Fatalf("helm push dir = %q, want clone %q", cmd.Dir, clone)
+			}
+			wantArgs := "push dist/charts/demo-1.2.3.tgz oci://registry.example/charts"
+			if strings.Join(cmd.Args, " ") != wantArgs {
+				t.Fatalf("helm push args = %#v, want %s", cmd.Args, wantArgs)
+			}
+		}
+	}
+	if goreleaserIndex == -1 || pushIndex == -1 {
+		t.Fatalf("commands = %#v, want goreleaser and helm push", commandStrings(fake.runCommands))
+	}
+	if pushIndex < goreleaserIndex {
+		t.Fatalf("helm push ran before goreleaser: %#v", commandStrings(fake.runCommands))
 	}
 }
 
@@ -678,6 +878,19 @@ func TestValidateChartConfigRejectsUnsupportedVersionSources(t *testing.T) {
 				t.Fatal("expected unsupported version source error")
 			}
 		})
+	}
+}
+
+func TestValidateChartConfigRejectsInvalidOCIRepository(t *testing.T) {
+	for _, env := range []map[string]string{
+		{"RELEASE_ARTIFACTS": "charts", "RELEASE_HELM_CHART_DIRS": "charts/demo", "RELEASE_HELM_OCI_REPOSITORY": "https://registry.example/charts"},
+		{"RELEASE_ARTIFACTS": "charts", "RELEASE_HELM_CHART_DIRS": "charts/demo", "RELEASE_HELM_OCI_REPOSITORY": "oci://registry.example/charts with-space"},
+		{"RELEASE_ARTIFACTS": "binaries", "RELEASE_HELM_OCI_REPOSITORY": "oci://registry.example/charts"},
+	} {
+		a := &app{env: env}
+		if err := a.validateChartConfig(); err == nil {
+			t.Fatal("expected OCI repository validation error")
+		}
 	}
 }
 
@@ -1170,9 +1383,68 @@ type fakeCommandRunner struct {
 func (f *fakeCommandRunner) Run(cmd runner.Command) error {
 	f.runCommands = append(f.runCommands, cmd)
 	if f.onRun != nil {
-		return f.onRun(cmd)
+		if err := f.onRun(cmd); err != nil {
+			return err
+		}
+	}
+	if err := fakeHelmPackage(cmd); err != nil {
+		return err
 	}
 	return nil
+}
+
+func fakeHelmPackage(cmd runner.Command) error {
+	if cmd.Name != "/fake/helm" || len(cmd.Args) == 0 || cmd.Args[0] != "package" {
+		return nil
+	}
+	chart := cmd.Args[1]
+	version := ""
+	destination := ""
+	for i := 2; i < len(cmd.Args); i++ {
+		switch cmd.Args[i] {
+		case "--version":
+			if i+1 < len(cmd.Args) {
+				version = cmd.Args[i+1]
+				i++
+			}
+		case "--destination":
+			if i+1 < len(cmd.Args) {
+				destination = cmd.Args[i+1]
+				i++
+			}
+		}
+	}
+	if version == "" || destination == "" {
+		return nil
+	}
+	name := fakeChartName(filepath.Join(cmd.Dir, chart, "Chart.yaml"))
+	if name == "" {
+		name = filepath.Base(chart)
+	}
+	if err := os.MkdirAll(filepath.Join(cmd.Dir, destination), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(cmd.Dir, destination, name+"-"+version+".tgz"), []byte("chart"), 0o644)
+}
+
+func fakeChartName(chartFile string) string {
+	content, err := os.ReadFile(chartFile)
+	if err != nil {
+		return ""
+	}
+	for _, raw := range strings.Split(strings.ReplaceAll(string(content), "\r\n", "\n"), "\n") {
+		line := strings.TrimSpace(raw)
+		name, ok := strings.CutPrefix(line, "name:")
+		if !ok {
+			continue
+		}
+		name = strings.TrimSpace(name)
+		if beforeComment, _, ok := strings.Cut(name, "#"); ok {
+			name = beforeComment
+		}
+		return strings.Trim(strings.TrimSpace(name), "'\"")
+	}
+	return ""
 }
 
 func (f *fakeCommandRunner) Output(cmd runner.Command) ([]byte, error) {
