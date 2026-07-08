@@ -101,6 +101,9 @@
   for the classic Helm package registry.
 - `RELEASE_HELM_CLASSIC_TOKEN` is environment-only and is intentionally not a
   supported `.release-tools.env` key.
+- Container image publishing is detected from GoReleaser config, not from a
+  `RELEASE_ARTIFACTS` value; `dockers`, `dockers_v2`, `docker_manifests`, and
+  `docker_signs` trigger local tool preflights in `doctor` and `tools-check`.
 
 ## Commands
 - CLI:
@@ -166,6 +169,9 @@
   and `none`.
 - CLI release body patching currently supports `RELEASE_BODY_MODE=patch` and `none`.
 - project Go preflight is required only when `RELEASE_REQUIRE_GO=1`.
+- GoReleaser container image preflights require Docker, Podman, Cosign, or a
+  configured static signing command only when the GoReleaser config contains
+  matching top-level container keys.
 - `VERSION` is the only supported tag override variable; `TAG` is not public config.
 
 ## Tooling / Env Notes
@@ -175,6 +181,8 @@
   for `RELEASE_FORGE`, or `RELEASE_TOKEN_FILE` in that order.
 - GoReleaser resolution checks `GORELEASER_BIN`, then common install locations.
 - Helm is required only when `RELEASE_ARTIFACTS` includes `charts`.
+- Docker/Podman/Cosign are required only when GoReleaser container image or
+  image-signing config is detected.
 - Go baseline is Go 1.26 with toolchain `go1.26.4`.
 - Dev-container verification uses Podman through `scripts/in-container`; the dev
   container is the source of required development tools, including Helm.

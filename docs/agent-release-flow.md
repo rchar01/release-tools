@@ -186,6 +186,28 @@ Reason:
 GoReleaser itself may still invoke `go` for metadata in some environments. The
 dev container includes Go 1.26.4 because this repo now builds the Go CLI.
 
+### Container Image Preflights Are GoReleaser-Owned
+
+Container image configuration stays in `.goreleaser.yaml`; there is no
+`RELEASE_ARTIFACTS` container value. `release-tools doctor` and
+`release-tools tools-check` scan the GoReleaser config for top-level `dockers`,
+`dockers_v2`, `docker_manifests`, and `docker_signs` keys, then check for the
+local tools those pipes need.
+
+Reason:
+
+- GoReleaser remains the image build, push, manifest, and signing authority
+- the release config does not grow a second container-image model
+- maintainers get earlier failures when Docker, Podman, Cosign, or a configured
+  signing command is missing
+- signing orchestration for non-GoReleaser artifacts can still be added later
+  without changing container-image ownership
+
+The scan is intentionally narrow. It detects supported top-level GoReleaser keys
+and common `use` or static `cmd` entries; GoReleaser remains responsible for
+validating the full YAML semantics and resolving dynamic, templated, or
+block-scalar signing commands.
+
 ### Check Versus Snapshot
 
 `release-tools check` runs `goreleaser check`.

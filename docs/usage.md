@@ -226,6 +226,8 @@ The consuming repo owns `.goreleaser.yaml`.
 - binary names
 - checksum names
 - before hooks
+- container image names, Dockerfiles, buildx settings, manifest templates, or
+  image-signing policy
 
 The project should define those directly.
 
@@ -251,6 +253,24 @@ Shell or documentation toolkits can use GoReleaser meta archives or source
 archives without configuring a project Go build. `release-tools` itself ships as
 a compiled Go CLI. Consuming projects only need Go when their own release flow
 requires it.
+
+Container image publishing remains configured in `.goreleaser.yaml`. When
+`doctor` or `tools-check` sees top-level `dockers`, `dockers_v2`,
+`docker_manifests`, or `docker_signs`, it performs only local tool preflights:
+
+- `dockers` requires `docker` by default, or `podman` when an entry sets
+  `use: podman`
+- `dockers_v2` requires `docker` because GoReleaser uses Docker buildx
+- `docker_manifests` requires `docker` by default, or `podman` when an entry
+  sets `use: podman`
+- `docker_signs` requires `cosign` by default, or the static command named by an
+  entry's `cmd` value
+
+These checks do not make container images a `RELEASE_ARTIFACTS` value and do not
+replace GoReleaser's image build, push, manifest, or signing behavior.
+Dynamic or templated signing command values cannot be resolved by
+`release-tools`; block-scalar `cmd` values are also left for GoReleaser to
+validate at release time.
 
 ## 5. Add A Release Notes Source
 

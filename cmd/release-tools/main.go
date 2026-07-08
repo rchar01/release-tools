@@ -97,6 +97,11 @@ type helmClassicAuth struct {
 	token    string
 }
 
+type goreleaserContainerConfig struct {
+	keys  []string
+	tools map[string]map[string]bool
+}
+
 func main() {
 	if err := executeCLI(context.Background(), os.Environ(), os.Stdout, os.Stderr, os.Args[1:]); err != nil {
 		exitCode := 1
@@ -533,6 +538,10 @@ func (a *app) doctor() error {
 		return err
 	}
 	goreleaserVersion := resolveGoreleaserVersion(a.commandRunner(), goreleaserBin)
+	containerConfig, err := a.detectGoreleaserContainerConfig()
+	if err != nil {
+		return err
+	}
 
 	a.log("Repository root: %s", a.repoRoot)
 	a.log("Toolkit root: %s", a.toolkitRoot)
@@ -545,6 +554,12 @@ func (a *app) doctor() error {
 	a.log("GoReleaser config: %s", config)
 	a.log("GoReleaser binary: %s", goreleaserBin)
 	a.log("GoReleaser version: %s", goreleaserVersion)
+	if containerConfig.enabled() {
+		a.log("GoReleaser container config: %s", strings.Join(containerConfig.keys, ", "))
+		if tools := containerConfig.toolNames(); len(tools) > 0 {
+			a.log("GoReleaser container tools: %s", strings.Join(tools, ", "))
+		}
+	}
 	a.log("Artifacts: %s", strings.Join(artifacts, ", "))
 	if enabled, err := a.chartsEnabled(); err != nil {
 		return err
@@ -605,8 +620,22 @@ func (a *app) ensureTools() error {
 	if enabled, err := a.chartsEnabled(); err != nil {
 		return err
 	} else if enabled {
-		_, err := a.resolveHelmBin()
+		if _, err := a.resolveHelmBin(); err != nil {
+			return err
+		}
+	}
+	return a.ensureContainerTools()
+}
+
+func (a *app) ensureContainerTools() error {
+	containerConfig, err := a.detectGoreleaserContainerConfig()
+	if err != nil {
 		return err
+	}
+	for _, tool := range containerConfig.toolNames() {
+		if _, err := a.commandRunner().LookPath(tool); err != nil {
+			return fmt.Errorf("%s is required because GoReleaser config uses %s", tool, strings.Join(containerConfig.toolKeys(tool), ", "))
+		}
 	}
 	return nil
 }
@@ -1571,6 +1600,250 @@ func (a *app) releaseBodyMode() string {
 
 func (a *app) goreleaserConfig() string {
 	return envValue(a.env, "GORELEASER_CONFIG", ".goreleaser.yaml")
+}
+
+func (a *app) detectGoreleaserContainerConfig() (goreleaserContainerConfig, error) {
+	config := goreleaserContainerConfig{tools: map[string]map[string]bool{}}
+	content, err := os.ReadFile(filepath.Join(a.repoRoot, a.goreleaserConfig()))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return config, nil
+		}
+		return config, err
+	}
+	blocks := topLevelYAMLBlocks(string(content), "dockers", "dockers_v2", "docker_manifests", "docker_signs")
+	for _, key := range []string{"dockers", "dockers_v2", "docker_manifests", "docker_signs"} {
+		block, ok := blocks[key]
+		if !ok || yamlBlockDisabled(block) {
+			continue
+		}
+		config.keys = append(config.keys, key)
+		items := yamlListItems(block)
+		if len(items) == 0 {
+			items = [][]string{block}
+		}
+		switch key {
+		case "dockers", "docker_manifests":
+			for _, item := range items {
+				uses := yamlScalarValues(item, "use")
+				if len(uses) == 0 {
+					config.addTool("docker", key)
+					continue
+				}
+				for _, use := range uses {
+					switch use {
+					case "podman":
+						config.addTool("podman", key)
+					case "docker", "buildx", "":
+						config.addTool("docker", key)
+					}
+				}
+			}
+		case "dockers_v2":
+			config.addTool("docker", key)
+		case "docker_signs":
+			for _, item := range items {
+				cmds := yamlScalarValues(item, "cmd")
+				if len(cmds) == 0 {
+					config.addTool("cosign", key)
+					continue
+				}
+				for _, cmd := range cmds {
+					tool := firstCommandWord(cmd)
+					config.addTool(tool, key)
+				}
+			}
+		}
+	}
+	return config, nil
+}
+
+func topLevelYAMLBlocks(content string, keys ...string) map[string][]string {
+	wanted := map[string]bool{}
+	for _, key := range keys {
+		wanted[key] = true
+	}
+	blocks := map[string][]string{}
+	current := ""
+	for _, raw := range strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n") {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			if current != "" {
+				blocks[current] = append(blocks[current], raw)
+			}
+			continue
+		}
+		if raw == strings.TrimLeft(raw, " \t") {
+			key, _, ok := strings.Cut(trimmed, ":")
+			key = strings.TrimSpace(strings.Trim(key, "'\""))
+			if ok && wanted[key] {
+				current = key
+				blocks[current] = append(blocks[current], raw)
+				continue
+			}
+			current = ""
+			continue
+		}
+		if current != "" {
+			blocks[current] = append(blocks[current], raw)
+		}
+	}
+	return blocks
+}
+
+func yamlScalarValues(block []string, key string) []string {
+	values := []string{}
+	prefix := key + ":"
+	for _, raw := range block {
+		line := strings.TrimSpace(raw)
+		line = strings.TrimSpace(strings.TrimPrefix(line, "-"))
+		if !strings.HasPrefix(line, prefix) {
+			continue
+		}
+		value := strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		if beforeComment, _, ok := strings.Cut(value, "#"); ok {
+			value = beforeComment
+		}
+		values = append(values, strings.Trim(strings.TrimSpace(value), "'\""))
+	}
+	return values
+}
+
+func yamlListItems(block []string) [][]string {
+	items := [][]string{}
+	current := -1
+	itemIndent := -1
+	for _, raw := range block {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") || !strings.HasPrefix(trimmed, "-") {
+			if current >= 0 {
+				items[current] = append(items[current], raw)
+			}
+			continue
+		}
+		indent := leadingIndent(raw)
+		if itemIndent == -1 {
+			itemIndent = indent
+		}
+		if indent == itemIndent {
+			items = append(items, []string{raw})
+			current = len(items) - 1
+			continue
+		}
+		if current >= 0 {
+			items[current] = append(items[current], raw)
+		}
+	}
+	return items
+}
+
+func leadingIndent(value string) int {
+	indent := 0
+	for _, r := range value {
+		if r != ' ' && r != '\t' {
+			break
+		}
+		indent++
+	}
+	return indent
+}
+
+func yamlBlockDisabled(block []string) bool {
+	meaningful := []string{}
+	for _, raw := range block {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		meaningful = append(meaningful, raw)
+	}
+	if len(meaningful) != 1 {
+		return false
+	}
+	_, value, ok := strings.Cut(strings.TrimSpace(meaningful[0]), ":")
+	if !ok {
+		return false
+	}
+	if beforeComment, _, ok := strings.Cut(value, "#"); ok {
+		value = beforeComment
+	}
+	switch strings.TrimSpace(value) {
+	case "", "|", ">":
+		return false
+	case "[]", "{}", "null", "~":
+		return true
+	default:
+		return false
+	}
+}
+
+func firstCommandWord(command string) string {
+	command = strings.TrimSpace(command)
+	if command == "" || command == "|" || command == ">" || strings.Contains(command, "{{") {
+		return ""
+	}
+	fields := strings.Fields(command)
+	for i, field := range fields {
+		field = strings.Trim(field, "'\"")
+		if field == "env" || isShellAssignment(field) {
+			continue
+		}
+		if (field == "sh" || field == "bash") && i+2 < len(fields) && strings.Trim(fields[i+1], "'\"") == "-c" {
+			inner := strings.Trim(strings.Join(fields[i+2:], " "), "'\"")
+			return firstCommandWord(inner)
+		}
+		return field
+	}
+	return ""
+}
+
+func isShellAssignment(value string) bool {
+	name, _, ok := strings.Cut(value, "=")
+	if !ok || name == "" {
+		return false
+	}
+	for i, r := range name {
+		if r == '_' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || i > 0 && r >= '0' && r <= '9' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func (c goreleaserContainerConfig) enabled() bool {
+	return len(c.keys) > 0
+}
+
+func (c goreleaserContainerConfig) toolNames() []string {
+	tools := make([]string, 0, len(c.tools))
+	for tool := range c.tools {
+		tools = append(tools, tool)
+	}
+	sort.Strings(tools)
+	return tools
+}
+
+func (c goreleaserContainerConfig) toolKeys(tool string) []string {
+	keys := []string{}
+	for key := range c.tools[tool] {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func (c goreleaserContainerConfig) addTool(tool, key string) {
+	if tool == "" {
+		return
+	}
+	if c.tools == nil {
+		c.tools = map[string]map[string]bool{}
+	}
+	if c.tools[tool] == nil {
+		c.tools[tool] = map[string]bool{}
+	}
+	c.tools[tool][key] = true
 }
 
 func (a *app) releaseArtifacts() ([]string, error) {

@@ -31,6 +31,10 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   testing
 - added `make codeberg-smoke-test` for live Codeberg release smoke testing and
   optional Helm package upload checks against a dedicated disposable repository
+- added GoReleaser container-image preflights that detect `dockers`,
+  `dockers_v2`, `docker_manifests`, and `docker_signs` config and require the
+  matching Docker, Podman, Cosign, or configured static signing command during
+  `doctor` and `tools-check`
 
 ### Fixed
 

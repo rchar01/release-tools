@@ -341,6 +341,235 @@ func TestDoctorReportsArtifacts(t *testing.T) {
 	}
 }
 
+func TestDetectGoreleaserContainerConfig(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".goreleaser.yaml"), `version: 2
+
+dockers:
+  - image_templates:
+      - example/app:latest
+    use: buildx
+
+dockers_v2:
+  - images:
+      - example/app
+
+docker_manifests:
+  - name_template: example/app:latest
+    use: podman
+
+docker_signs:
+  - artifacts: manifests
+    cmd: notation
+`)
+	a := &app{repoRoot: dir, env: map[string]string{}}
+
+	config, err := a.detectGoreleaserContainerConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(config.keys, ","); got != "dockers,dockers_v2,docker_manifests,docker_signs" {
+		t.Fatalf("keys = %q, want all container keys", got)
+	}
+	if got := strings.Join(config.toolNames(), ","); got != "docker,notation,podman" {
+		t.Fatalf("tools = %q, want docker,notation,podman", got)
+	}
+	if got := strings.Join(config.toolKeys("docker"), ","); got != "dockers,dockers_v2" {
+		t.Fatalf("docker keys = %q, want dockers,dockers_v2", got)
+	}
+	if got := strings.Join(config.toolKeys("podman"), ","); got != "docker_manifests" {
+		t.Fatalf("podman keys = %q, want docker_manifests", got)
+	}
+	if got := strings.Join(config.toolKeys("notation"), ","); got != "docker_signs" {
+		t.Fatalf("notation keys = %q, want docker_signs", got)
+	}
+}
+
+func TestDetectGoreleaserContainerConfigIgnoresDisabledBlocks(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".goreleaser.yaml"), `version: 2
+dockers: [] # disabled
+docker_signs: null # disabled
+`)
+	a := &app{repoRoot: dir, env: map[string]string{}}
+
+	config, err := a.detectGoreleaserContainerConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.enabled() {
+		t.Fatalf("container config = %#v, want disabled", config)
+	}
+}
+
+func TestDetectGoreleaserContainerConfigSkipsDynamicSigningCommand(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".goreleaser.yaml"), `version: 2
+docker_signs:
+  - artifacts: manifests
+    cmd: "{{ .Env.SIGN_CMD }}"
+`)
+	a := &app{repoRoot: dir, env: map[string]string{}}
+
+	config, err := a.detectGoreleaserContainerConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(config.keys, ","); got != "docker_signs" {
+		t.Fatalf("keys = %q, want docker_signs", got)
+	}
+	if got := strings.Join(config.toolNames(), ","); got != "" {
+		t.Fatalf("tools = %q, want no static tool for dynamic signing command", got)
+	}
+}
+
+func TestDetectGoreleaserContainerConfigHandlesSigningCommandForms(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".goreleaser.yaml"), `version: 2
+docker_signs:
+  - artifacts: manifests
+    cmd: "FOO=1 cosign sign --yes"
+  - artifacts: images
+    cmd: "sh -c 'notation sign --yes'"
+  - artifacts: checksums
+    cmd: |
+      cosign sign --yes
+`)
+	a := &app{repoRoot: dir, env: map[string]string{}}
+
+	config, err := a.detectGoreleaserContainerConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(config.toolNames(), ","); got != "cosign,notation" {
+		t.Fatalf("tools = %q, want cosign,notation", got)
+	}
+	if got := strings.Join(config.toolKeys("cosign"), ","); got != "docker_signs" {
+		t.Fatalf("cosign keys = %q, want docker_signs", got)
+	}
+	if got := strings.Join(config.toolKeys("notation"), ","); got != "docker_signs" {
+		t.Fatalf("notation keys = %q, want docker_signs", got)
+	}
+}
+
+func TestDetectGoreleaserContainerConfigKeepsMixedEntryDefaults(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".goreleaser.yaml"), `version: 2
+dockers:
+  - image_templates:
+      - example/app:podman
+    use: podman
+  - image_templates:
+      - example/app:docker
+docker_signs:
+  - artifacts: manifests
+    cmd: notation
+  - artifacts: images
+`)
+	a := &app{repoRoot: dir, env: map[string]string{}}
+
+	config, err := a.detectGoreleaserContainerConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(config.toolNames(), ","); got != "cosign,docker,notation,podman" {
+		t.Fatalf("tools = %q, want cosign,docker,notation,podman", got)
+	}
+	for _, tool := range []string{"cosign", "notation", "podman"} {
+		if got := strings.Join(config.toolKeys(tool), ","); got != map[string]string{"cosign": "docker_signs", "notation": "docker_signs", "podman": "dockers"}[tool] {
+			t.Fatalf("%s keys = %q", tool, got)
+		}
+	}
+	if got := strings.Join(config.toolKeys("docker"), ","); got != "dockers" {
+		t.Fatalf("docker keys = %q, want dockers", got)
+	}
+}
+
+func TestDoctorReportsGoreleaserContainerConfig(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".goreleaser.yaml"), `version: 2
+dockers:
+  - image_templates:
+      - example/app:latest
+docker_signs:
+  - artifacts: manifests
+`)
+	var stdout bytes.Buffer
+	a := &app{
+		repoRoot: dir,
+		env: map[string]string{
+			"RELEASE_PROJECT":    "demo",
+			"RELEASE_OWNER":      "owner",
+			"RELEASE_NOTES_MODE": "none",
+			"RELEASE_BODY_MODE":  "none",
+			"GORELEASER_BIN":     "/tools/goreleaser",
+		},
+		commands: &fakeCommandRunner{combinedOutput: []byte("GitVersion: v2.16.0\n")},
+		stdout:   &stdout,
+		stderr:   ioDiscard(),
+	}
+
+	if err := a.doctor(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "[INFO] GoReleaser container config: dockers, docker_signs\n") {
+		t.Fatalf("doctor output = %q, want container config line", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "[INFO] GoReleaser container tools: cosign, docker\n") {
+		t.Fatalf("doctor output = %q, want container tools line", stdout.String())
+	}
+}
+
+func TestEnsureToolsRequiresDetectedContainerTools(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".goreleaser.yaml"), `version: 2
+dockers:
+  - image_templates:
+      - example/app:latest
+docker_signs:
+  - artifacts: manifests
+`)
+	a := &app{
+		repoRoot: dir,
+		env:      map[string]string{"GORELEASER_BIN": "/tools/goreleaser"},
+		commands: &fakeCommandRunner{lookPathErrors: map[string]error{"cosign": errors.New("missing")}},
+	}
+
+	err := a.ensureTools()
+	if err == nil {
+		t.Fatal("expected missing cosign error")
+	}
+	if !strings.Contains(err.Error(), "cosign is required because GoReleaser config uses docker_signs") {
+		t.Fatalf("error = %q, want cosign requirement", err)
+	}
+}
+
+func TestEnsureToolsChecksContainersWhenChartsAreEnabled(t *testing.T) {
+	dir := t.TempDir()
+	writeChart(t, filepath.Join(dir, "charts", "demo"), "demo")
+	writeFile(t, filepath.Join(dir, ".goreleaser.yaml"), `version: 2
+docker_signs:
+  - artifacts: manifests
+`)
+	a := &app{
+		repoRoot: dir,
+		env: map[string]string{
+			"RELEASE_ARTIFACTS":       "binaries,charts",
+			"RELEASE_HELM_CHART_DIRS": "charts/demo",
+			"GORELEASER_BIN":          "/tools/goreleaser",
+		},
+		commands: &fakeCommandRunner{lookPathErrors: map[string]error{"cosign": errors.New("missing")}},
+	}
+
+	err := a.ensureTools()
+	if err == nil {
+		t.Fatal("expected missing cosign error")
+	}
+	if !strings.Contains(err.Error(), "cosign is required because GoReleaser config uses docker_signs") {
+		t.Fatalf("error = %q, want cosign requirement", err)
+	}
+}
+
 func TestCheckRunsHelmForCharts(t *testing.T) {
 	dir := t.TempDir()
 	writeChart(t, filepath.Join(dir, "charts", "demo"), "demo")
@@ -1954,6 +2183,7 @@ type fakeCommandRunner struct {
 	combinedOutputCommands []runner.Command
 	output                 []byte
 	combinedOutput         []byte
+	lookPathErrors         map[string]error
 	onRun                  func(runner.Command) error
 }
 
@@ -2039,6 +2269,9 @@ func (f *fakeCommandRunner) CombinedOutput(cmd runner.Command) ([]byte, error) {
 }
 
 func (f *fakeCommandRunner) LookPath(file string) (string, error) {
+	if err := f.lookPathErrors[file]; err != nil {
+		return "", err
+	}
 	return "/fake/" + file, nil
 }
 

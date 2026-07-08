@@ -269,7 +269,7 @@ Candidate B: Forgejo/Gitea classic Helm package registry.
   plugin only after confirming exact behavior.
 - [x] Define behavior when a chart version already exists.
 - [x] Prototype raw `/api/charts` upload behavior against local ChartMuseum.
-- [ ] Prototype against Forgejo/Gitea before documenting classic support as
+- [x] Prototype against Forgejo/Gitea before documenting classic support as
   fully equivalent to that package registry.
 
 Validation gate:
@@ -277,9 +277,10 @@ Validation gate:
 - [x] Unit tests for auth resolution and command construction.
 - [x] Stubbed publish tests for success and command ordering.
 - [x] Manual or container-backed end-to-end prototype against the chosen target.
-- [ ] `make verify`
-- [ ] `make container-test`
+- [x] `make verify`
+- [x] `make container-test`
 - [x] `make helm-registry-test`
+- [x] `make codeberg-smoke-test`
 
 Decision point: Publish docs for only the backend that has passed an end-to-end
 prototype.
@@ -291,22 +292,22 @@ without making `release-tools` a container builder.
 
 Tasks:
 
-- [ ] Detect whether `.goreleaser.yaml` includes container-image configuration
+- [x] Detect whether `.goreleaser.yaml` includes container-image configuration
   such as `dockers`, `dockers_v2`, `docker_manifests`, or `docker_signs`.
-- [ ] Decide whether detection should use lightweight YAML parsing or a simpler
+- [x] Decide whether detection should use lightweight YAML parsing or a simpler
   documented opt-in.
-- [ ] Check for required container tooling only when container publishing is
+- [x] Check for required container tooling only when container publishing is
   detected or explicitly enabled.
-- [ ] Check for `cosign` when GoReleaser image signing is configured or signing
-  is explicitly enabled.
-- [ ] Add docs stating that GoReleaser owns container image build and push.
-- [ ] Add docs warning that `dockers_v2` is still provisional upstream.
+- [x] Check for `cosign` when GoReleaser image signing is configured, or the
+  configured static signing command when `docker_signs` sets `cmd`.
+- [x] Add docs stating that GoReleaser owns container image build and push.
+- [x] Add docs warning that `dockers_v2` uses Docker buildx.
 
 Validation gate:
 
-- [ ] Unit tests for detection or opt-in config parsing.
-- [ ] `go test ./cmd/release-tools`
-- [ ] `make verify`
+- [x] Unit tests for detection or opt-in config parsing.
+- [x] `go test ./cmd/release-tools`
+- [x] `make verify`
 
 Decision point: Decide whether container support needs any public config beyond
 preflight checks.
@@ -402,12 +403,13 @@ Validation gate:
 
 ## Validation Commands
 
-- [ ] `go test ./cmd/release-tools`
-- [ ] `scripts/test-errors`
-- [ ] `make verify`
-- [ ] `make container-test`
+- [x] `go test ./cmd/release-tools`
+- [x] `scripts/test-errors`
+- [x] `make verify`
+- [x] `make container-test`
 - [x] `make helm-registry-test`
-- [ ] Targeted end-to-end registry prototype commands for each remote backend
+- [x] `make codeberg-smoke-test`
+- [x] Targeted end-to-end registry prototype commands for each remote backend
   before marking that backend stable.
 
 ## Progress Log
@@ -423,7 +425,9 @@ Validation gate:
 | 2026-07-08 | Phase 5 explicit OCI auth implemented. | Added `helm registry login` with `--password-stdin` and temporary registry config when explicit OCI auth is configured; pre-authenticated Helm remains supported when auth config is omitted. |
 | 2026-07-08 | Phase 5 classic Helm backend implemented. | Added Forgejo/Gitea-compatible raw chart uploads to `<url>/api/charts` with explicit package token config; real-registry prototype still pending. |
 | 2026-07-08 | Local Helm registry smoke test implemented. | Added `make helm-registry-test`, `scripts/test-helm-registries`, and `RELEASE_HELM_OCI_PLAIN_HTTP`; smoke test passed against local Zot for OCI push/pull and ChartMuseum for raw `/api/charts` upload. |
-| 2026-07-08 | Live Codeberg smoke test started. | Added `make codeberg-smoke-test` for `rch/release-tools-smoke`; live release creation and body patching passed with GoReleaser 2.16.0, and package upload is blocked by current token package-registry auth (`401 reqPackageAccess`). |
+| 2026-07-08 | Live Codeberg smoke test started. | Added `make codeberg-smoke-test` for `rch/release-tools-smoke`; live release creation and body patching passed with GoReleaser 2.16.0, and package upload was initially blocked by token package-registry auth (`401 reqPackageAccess`). |
+| 2026-07-08 | Live Codeberg chart publishing verified. | `make codeberg-smoke-test` passed with package-registry credentials; the smoke waits for Codeberg Helm `index.yaml` to contain the uploaded chart name and exact release version. |
+| 2026-07-08 | Phase 6 container image preflights implemented. | Added top-level GoReleaser container config detection for `dockers`, `dockers_v2`, `docker_manifests`, and `docker_signs`; `doctor` and `tools-check` now require the matching Docker, Podman, Cosign, or configured static signing command only when those keys are present. |
 
 ## Decision Log
 
@@ -439,3 +443,4 @@ Validation gate:
 | 2026-07-08 | Use `RELEASE_HELM_CLASSIC_URL` as the classic Helm opt-in switch. | Avoids an extra mode key while the implemented classic backend is specifically Forgejo/Gitea-compatible. |
 | 2026-07-08 | Add explicit plain-HTTP OCI opt-in. | Local Zot smoke testing showed Helm attempts HTTPS by default; `RELEASE_HELM_OCI_PLAIN_HTTP=1` maps directly to Helm's `--plain-http` for registry login and push without making insecure transport implicit. |
 | 2026-07-08 | Keep publish chart packages outside `dist`. | A live Codeberg smoke run showed real GoReleaser `--clean` deletes `dist/charts` after pre-publish chart packaging; a temp directory outside the repo preserves fail-before-publish validation without losing packages before upload. |
+| 2026-07-08 | Do not add container images to `RELEASE_ARTIFACTS`. | GoReleaser already owns image build, push, manifest, and image-signing behavior; `release-tools` only detects GoReleaser config and preflights local tools. |

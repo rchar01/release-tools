@@ -40,6 +40,8 @@ Consumer repositories need:
 
 - the `release-tools` binary installed on `PATH`
 - GoReleaser available on `PATH` or through `GORELEASER_BIN`
+- Docker, Podman, Cosign, or another configured signing command when the
+  project-owned GoReleaser config uses container image or image-signing pipes
 - Helm available on `PATH` when `RELEASE_ARTIFACTS` includes `charts`
 - a repo-local `.release-tools.env`
 - a project-owned `.goreleaser.yaml`
@@ -195,6 +197,13 @@ query strings, fragments, or the `/api/charts` upload suffix. Configure
 `RELEASE_HELM_CLASSIC_USERNAME` with `RELEASE_HELM_CLASSIC_TOKEN_FILE` or
 environment-only `RELEASE_HELM_CLASSIC_TOKEN`. Publish commands upload packaged
 charts to `<url>/api/charts` with Basic auth after GoReleaser succeeds.
+
+Container image publishing remains GoReleaser-owned. When `.goreleaser.yaml`
+contains top-level `dockers`, `dockers_v2`, `docker_manifests`, or
+`docker_signs`, `doctor` and `tools-check` report the detected config and check
+for the corresponding local tools before release time. `docker_signs` defaults
+to `cosign` unless the GoReleaser config sets another static `cmd`. Dynamic or
+block-scalar signing commands are left for GoReleaser to resolve.
 
 For the full public config contract, token resolution rules, and consumer setup
 guide, see [`docs/usage.md`](docs/usage.md).
