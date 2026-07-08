@@ -71,20 +71,29 @@ release before adding more features.
 
 Tasks:
 
-- [ ] Run `make verify` and record the result.
-- [ ] Run `make container-test` and record the result.
-- [ ] Run `make helm-registry-test` and record the result.
-- [ ] Run `make helm-provenance-test` and record the result.
-- [ ] Run `make codeberg-smoke-test` with package-registry-capable credentials
+- [x] Run `make verify` and record the result.
+  Result: passed on 2026-07-08.
+- [x] Run `make container-test` and record the result.
+  Result: passed on 2026-07-08.
+- [x] Run `make helm-registry-test` and record the result.
+  Result: passed on 2026-07-08 against local Zot and ChartMuseum; OCI
+  push/pull reported digest
+  `sha256:1af7724dea16df6403ded78d6f78c054a976e8a72956344d2c6761c35a19a8fa`.
+- [x] Run `make helm-provenance-test` and record the result.
+  Result: passed on 2026-07-08 with disposable GPG-backed chart verification.
+- [x] Run `make codeberg-smoke-test` with package-registry-capable credentials
   and record whether release creation, body patching, and chart upload pass.
+  Result: passed on 2026-07-08 for `rch/release-tools-smoke`
+  `v0.0.1783530033`; GoReleaser created release `10625726`, release body
+  patching succeeded, and the smoke confirmed the chart upload.
 
 Validation gate:
 
-- [ ] All release-readiness commands pass, or failures are documented with a
+- [x] All release-readiness commands pass, or failures are documented with a
   release decision.
 
-Decision point: If validation passes, proceed with release prep. If validation
-fails, fix regressions before new chart/signing feature work.
+Decision point: Validation passed on 2026-07-08. Proceed with release prep before
+new chart/signing feature work.
 
 ## Phase 2: OCI Helm Chart Signing Prototype
 
@@ -198,17 +207,18 @@ Validation gate:
 
 ## Validation Commands
 
-- [ ] `make verify`
-- [ ] `make container-test`
-- [ ] `make helm-registry-test`
-- [ ] `make helm-provenance-test`
-- [ ] `make codeberg-smoke-test`
+- [x] `make verify`
+- [x] `make container-test`
+- [x] `make helm-registry-test`
+- [x] `make helm-provenance-test`
+- [x] `make codeberg-smoke-test`
 
 ## Progress Log
 
 | Date | Update | Evidence |
 | --- | --- | --- |
 | 2026-07-08 | Plan created for chart signing and manifest follow-ups. | User requested a written plan for remaining chart/signing future work. |
+| 2026-07-08 | Phase 1 release-readiness validation passed. | `make verify`, `make container-test`, `make helm-registry-test`, `make helm-provenance-test`, and `make codeberg-smoke-test` all passed sequentially; Codeberg smoke passed for `rch/release-tools-smoke` `v0.0.1783530033`. |
 
 ## Decision Log
 
