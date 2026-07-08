@@ -148,6 +148,22 @@ If unset, `release-tools` keeps the existing binaries-only behavior. Supported
 values are `binaries` and `charts`. The `doctor` command validates and reports
 the configured artifact classes.
 
+`binaries` covers GoReleaser-owned artifacts: binaries, archives, checksums,
+release assets, and any GoReleaser-supported SBOM or signing output configured
+in `.goreleaser.yaml`. `release-tools` invokes GoReleaser but does not redefine
+the build matrix, archive names, checksum names, container images, or
+GoReleaser-supported signing policy.
+
+`charts` covers Helm artifacts orchestrated by `release-tools`: packaged chart
+archives, optional `.prov` files, optional OCI pushes, optional
+ChartMuseum-compatible classic uploads, and chart metadata in
+`dist/release-manifest.json`.
+
+Container images are intentionally not a `RELEASE_ARTIFACTS` value. Configure
+container image builds, pushes, manifests, and image signing in
+`.goreleaser.yaml`; `release-tools` only detects those GoReleaser keys for local
+tool preflights.
+
 When charts are enabled, list one or more chart directories relative to the
 repository root:
 
@@ -165,11 +181,12 @@ RELEASE_HELM_APP_VERSION_FROM=tag
 # RELEASE_HELM_CLASSIC_TOKEN_FILE=~/.config/forgejo/helm-token
 # RELEASE_HELM_PROVENANCE=0
 # RELEASE_HELM_GPG_KEY=maintainer@example.org
-# RELEASE_HELM_GPG_KEYRING=~/.gnupg/secring.gpg
+# RELEASE_HELM_GPG_KEYRING=~/.config/helm/release-keyring.gpg
 ```
 
 Only `tag` is currently supported for Helm chart and app versions. A release tag
-such as `v1.2.3` becomes chart version `1.2.3`.
+such as `v1.2.3` becomes chart version `1.2.3`. Reading chart or app versions
+from `Chart.yaml` is future work and is not currently supported.
 
 Chart-enabled commands add local Helm behavior:
 
@@ -213,16 +230,18 @@ provenance support. When enabled, `RELEASE_HELM_GPG_KEY` and
 `helm package ... --sign --key <key> --keyring <keyring>`. Relative keyring
 paths are resolved from the release repository root, including the clean tag
 clone used by `publish-tag`. The keyring must be readable before publish starts.
+Use a Helm-compatible GPG keyring that contains the signing key, such as an
+exported release keyring kept outside the repository.
 OCI chart signing is not implemented; chart OCI signatures are intentionally
 deferred until digest-based signing behavior is validated against real
 registries.
 
-`RELEASE_HELM_CLASSIC_URL` is for Forgejo/Gitea-compatible classic Helm package
-registries. Set it to the Helm package base URL, for example
-`https://forge.example/api/packages/myowner/helm`. Do not include credentials,
-query strings, fragments, or the `/api/charts` upload suffix in this URL.
-`release-tools` uploads each packaged chart with a raw `POST` to
-`<url>/api/charts` using Basic auth. Set
+`RELEASE_HELM_CLASSIC_URL` is for ChartMuseum-compatible classic Helm package
+registries, including Forgejo/Gitea package registries. Set it to the Helm
+package base URL, for example `https://forge.example/api/packages/myowner/helm`.
+Do not include credentials, query strings, fragments, or the `/api/charts`
+upload suffix in this URL. `release-tools` uploads each packaged chart with a
+raw `POST` to `<url>/api/charts` using Basic auth. Set
 `RELEASE_HELM_CLASSIC_USERNAME` and provide the package token or password with
 `RELEASE_HELM_CLASSIC_TOKEN_FILE` or environment-only
 `RELEASE_HELM_CLASSIC_TOKEN`. Plaintext `RELEASE_HELM_CLASSIC_TOKEN` is

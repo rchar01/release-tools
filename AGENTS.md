@@ -97,8 +97,9 @@
   insecure registries.
 - `RELEASE_HELM_OCI_PASSWORD` is environment-only and is intentionally not a
   supported `.release-tools.env` key.
-- `RELEASE_HELM_CLASSIC_URL` enables raw Helm chart upload to a Forgejo/Gitea
-  classic Helm package registry during `publish` and `publish-tag`.
+- `RELEASE_HELM_CLASSIC_URL` enables raw Helm chart upload to a
+  ChartMuseum-compatible classic Helm package registry, including Forgejo/Gitea
+  package registries, during `publish` and `publish-tag`.
 - `RELEASE_HELM_CLASSIC_USERNAME` with `RELEASE_HELM_CLASSIC_TOKEN_FILE` or
   environment-only `RELEASE_HELM_CLASSIC_TOKEN` provides documented Basic auth
   for the classic Helm package registry.

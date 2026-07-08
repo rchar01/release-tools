@@ -175,17 +175,25 @@ Supported release notes modes:
 Supported artifact classes are configured with `RELEASE_ARTIFACTS`. If unset,
 the CLI uses `binaries`; supported values are `binaries` and `charts`.
 
-When `charts` is enabled, `release-tools check` runs Helm dependency and lint
-checks, `release-tools snapshot` packages charts into `dist/charts`, and
-publish commands package charts before GoReleaser publishes release assets. If
-`RELEASE_HELM_OCI_REPOSITORY` is set, publish commands push packaged charts to
-that OCI repository after GoReleaser succeeds. Set `RELEASE_HELM_OCI_USERNAME`
-with `RELEASE_HELM_OCI_PASSWORD_FILE` or environment-only
-`RELEASE_HELM_OCI_PASSWORD` when `release-tools` should run `helm registry
-login` with a temporary Helm registry config before pushing. Without those auth
-settings, Helm must already be authenticated. Set `RELEASE_HELM_PROVENANCE=1`
-with `RELEASE_HELM_GPG_KEY` and `RELEASE_HELM_GPG_KEYRING` to append Helm's
-`--sign`, `--key`, and `--keyring` flags during chart packaging.
+`binaries` means GoReleaser owns configured binaries, archives, checksums,
+release assets, and any GoReleaser-supported SBOM or signing output. Configure
+those artifacts in `.goreleaser.yaml`, not `.release-tools.env`.
+
+`charts` means `release-tools` runs Helm chart checks and packages chart
+archives. Configure chart directories with `RELEASE_HELM_CHART_DIRS`; the only
+stable chart and app version source is currently `tag`, so `v1.2.3` becomes
+`1.2.3`. Reading chart versions from `Chart.yaml` is future work and is not
+currently supported.
+
+If `RELEASE_HELM_OCI_REPOSITORY` is set, publish commands push packaged charts
+to that OCI repository after GoReleaser succeeds. Set
+`RELEASE_HELM_OCI_USERNAME` with `RELEASE_HELM_OCI_PASSWORD_FILE` or
+environment-only `RELEASE_HELM_OCI_PASSWORD` when `release-tools` should run
+`helm registry login` with a temporary Helm registry config before pushing.
+Without those auth settings, Helm must already be authenticated. Set
+`RELEASE_HELM_PROVENANCE=1` with `RELEASE_HELM_GPG_KEY` and
+`RELEASE_HELM_GPG_KEYRING` to append Helm's `--sign`, `--key`, and `--keyring`
+flags during chart packaging.
 
 Chart-enabled snapshot, publish, and publish-tag flows write
 `dist/release-manifest.json` with the release tag, normalized chart version,
@@ -201,15 +209,17 @@ Set `RELEASE_HELM_OCI_PLAIN_HTTP=1` only for disposable or otherwise explicitly
 trusted insecure OCI registries. It appends Helm's `--plain-http` flag to OCI
 registry login and chart pushes.
 
-For Forgejo/Gitea classic Helm package registries, set
-`RELEASE_HELM_CLASSIC_URL` to the Helm package base URL, such as
-`https://forge.example/api/packages/myowner/helm`. Do not include credentials,
-query strings, fragments, or the `/api/charts` upload suffix. Configure
-`RELEASE_HELM_CLASSIC_USERNAME` with `RELEASE_HELM_CLASSIC_TOKEN_FILE` or
-environment-only `RELEASE_HELM_CLASSIC_TOKEN`. Publish commands upload packaged
-charts to `<url>/api/charts` with Basic auth after GoReleaser succeeds.
+For ChartMuseum-compatible classic Helm package registries, including
+Forgejo/Gitea package registries, set `RELEASE_HELM_CLASSIC_URL` to the Helm
+package base URL, such as `https://forge.example/api/packages/myowner/helm`. Do
+not include credentials, query strings, fragments, or the `/api/charts` upload
+suffix. Configure `RELEASE_HELM_CLASSIC_USERNAME` with
+`RELEASE_HELM_CLASSIC_TOKEN_FILE` or environment-only
+`RELEASE_HELM_CLASSIC_TOKEN`. Publish commands upload packaged charts to
+`<url>/api/charts` with Basic auth after GoReleaser succeeds.
 
-Container image publishing remains GoReleaser-owned. When `.goreleaser.yaml`
+Container image publishing remains GoReleaser-owned and is not a
+`RELEASE_ARTIFACTS` value. Configure containers in `.goreleaser.yaml`; when it
 contains top-level `dockers`, `dockers_v2`, `docker_manifests`, or
 `docker_signs`, `doctor` and `tools-check` report the detected config and check
 for the corresponding local tools before release time. `docker_signs` defaults

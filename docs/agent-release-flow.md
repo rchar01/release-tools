@@ -147,8 +147,9 @@ publishes release assets. If `RELEASE_HELM_OCI_REPOSITORY` is set, publish
 commands push packaged charts to that OCI repository after GoReleaser succeeds.
 When explicit OCI auth is configured, the CLI logs in with Helm using a
 temporary registry config before pushing charts. If `RELEASE_HELM_CLASSIC_URL`
-is set, publish commands upload packaged charts to a Forgejo/Gitea-compatible
-classic Helm package registry after GoReleaser succeeds.
+is set, publish commands upload packaged charts to a ChartMuseum-compatible
+classic Helm package registry, including Forgejo/Gitea package registries, after
+GoReleaser succeeds.
 `RELEASE_HELM_OCI_PLAIN_HTTP=1` is an explicit insecure-registry opt-in for
 local or disposable OCI registry tests.
 
@@ -165,8 +166,8 @@ Reason:
   `--password-stdin`
 - plaintext OCI passwords are environment-only; committed config should use a
   password file path instead
-- classic Forgejo/Gitea package uploads use the package API rather than a Helm
-  plugin
+- classic package uploads use the ChartMuseum-compatible `/api/charts` endpoint
+  rather than a Helm plugin
 - classic package uploads use documented Basic auth with a username plus an
   environment-only or file-backed token; auth is resolved before GoReleaser
   starts

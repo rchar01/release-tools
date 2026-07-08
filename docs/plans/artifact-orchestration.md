@@ -63,15 +63,21 @@ consumer repositories.
 ## Open Questions
 
 - [x] Which Helm target should be implemented first after local chart packaging:
-  OCI registry or Forgejo/Gitea classic Helm package registry?
+  OCI registry or classic Helm package registry?
 - [x] Should `release-tools` run `helm registry login` with temporary config, or
   should it require the caller to pre-authenticate for OCI registries?
-- [ ] Should chart version always come from the release tag, or do we need a
+- [x] Should chart version always come from the release tag, or do we need a
   supported mode where chart version and app version differ?
-- [ ] Is ChartMuseum required, or can classic Helm publishing start with
+  Decision: `tag` remains the only stable source for now; reading chart or app
+  versions from `Chart.yaml` is future work.
+- [x] Is ChartMuseum required, or can classic Helm publishing start with
   Forgejo/Gitea only?
-- [ ] Should container-image support be explicit through `RELEASE_ARTIFACTS`, or
+  Decision: ChartMuseum-compatible upload should be supported, including
+  Forgejo/Gitea package registries; ChartMuseum is supported but not required.
+- [x] Should container-image support be explicit through `RELEASE_ARTIFACTS`, or
   should `release-tools` only detect GoReleaser container config during `doctor`?
+  Decision: container image support stays GoReleaser-owned and is detected from
+  `.goreleaser.yaml`; there is no `RELEASE_ARTIFACTS=containers` value.
 
 ## Proposed Public Config
 
@@ -84,7 +90,7 @@ RELEASE_HELM_VERSION_FROM=tag
 RELEASE_HELM_APP_VERSION_FROM=tag
 ```
 
-Candidate keys for later milestones, not stable until implemented:
+Additional stable keys implemented by later milestones:
 
 ```sh
 RELEASE_HELM_OCI_REPOSITORY=oci://codeberg.org/myowner/charts
@@ -98,12 +104,15 @@ RELEASE_HELM_CLASSIC_TOKEN_FILE=~/.config/forgejo/helm-token
 
 RELEASE_HELM_PROVENANCE=false
 RELEASE_HELM_GPG_KEY=maintainer@example.org
-RELEASE_HELM_GPG_KEYRING=~/.gnupg/pubring.gpg
+RELEASE_HELM_GPG_KEYRING=~/.config/helm/release-keyring.gpg
+```
 
+Candidate keys for future milestones, not stable until implemented:
+
+```sh
 RELEASE_SIGN_MODE=none
 RELEASE_COSIGN_MODE=keyless
 RELEASE_HELM_OCI_SIGN=false
-
 RELEASE_MANIFEST=false
 ```
 
@@ -258,7 +267,7 @@ Candidate A: Helm OCI registry.
 - [x] Prototype against a local Zot OCI registry before documenting support as
   stable.
 
-Candidate B: Forgejo/Gitea classic Helm package registry.
+Candidate B: ChartMuseum-compatible classic Helm package registry.
 
 - [x] Use `RELEASE_HELM_CLASSIC_URL` as the opt-in switch.
 - [x] Add `RELEASE_HELM_CLASSIC_URL`.
@@ -269,8 +278,8 @@ Candidate B: Forgejo/Gitea classic Helm package registry.
   plugin only after confirming exact behavior.
 - [x] Define behavior when a chart version already exists.
 - [x] Prototype raw `/api/charts` upload behavior against local ChartMuseum.
-- [x] Prototype against Forgejo/Gitea before documenting classic support as
-  fully equivalent to that package registry.
+- [x] Prototype against ChartMuseum-compatible backends, including Forgejo/Gitea,
+  before documenting classic support as stable.
 
 Validation gate:
 
@@ -329,7 +338,7 @@ Tasks:
   target registry.
 - [ ] Sign OCI Helm charts by immutable digest, not just tag, if OCI signing is
   promoted to stable support.
-- [ ] Keep GoReleaser `docker_signs` as the documented path for container image
+- [x] Keep GoReleaser `docker_signs` as the documented path for container image
   signing.
 
 Validation gate:
@@ -338,7 +347,7 @@ Validation gate:
 - [x] Stubbed signing command tests.
 - [x] Manual end-to-end signing and verification notes for the chosen backend.
 - [x] `make verify`
-- [ ] `make container-test`
+- [x] `make container-test`
 
 Decision point: Decide whether OCI Helm signing is stable enough for public docs
 or should remain experimental guidance.
@@ -390,7 +399,7 @@ Validation gate:
 
 - [x] Docs match implemented config allowlist.
 - [x] Examples use only released or release-prep behavior.
-- [ ] `make verify`
+- [x] `make verify`
 
 ## Risks
 
@@ -424,9 +433,9 @@ Validation gate:
 | 2026-07-08 | Phase 2 artifact config implemented. | Added `RELEASE_ARTIFACTS` parsing, `chartsEnabled`, `doctor` reporting, focused artifact/doctor tests, and `scripts/test-errors` coverage. Verification subagent reported `go test ./...`, `scripts/test-errors`, and `make verify` passed. |
 | 2026-07-08 | Phase 3 local Helm behavior implemented. | Added Helm chart config, local check/package commands, dev-container Helm install, unit tests, `scripts/test-errors`, and stub Helm/GoReleaser integration coverage in `scripts/test`; chart paths are constrained inside the repo including symlink targets; `make verify` and `make container-test` passed. |
 | 2026-07-08 | Phase 4 publish sequencing implemented. | Added chart packaging before GoReleaser publish and publish-tag, clone-local packaging tests, failure-ordering coverage, and stub publish coverage in `scripts/test`; `make container-test` passed. |
-| 2026-07-08 | Phase 5 OCI backend started. | Added `RELEASE_HELM_OCI_REPOSITORY`, `helm push` after successful GoReleaser publish, unit ordering coverage, and stub publish coverage; real-registry prototype still pending. |
+| 2026-07-08 | Phase 5 OCI backend started. | Added `RELEASE_HELM_OCI_REPOSITORY`, `helm push` after successful GoReleaser publish, unit ordering coverage, and stub publish coverage; local Zot verification later passed. |
 | 2026-07-08 | Phase 5 explicit OCI auth implemented. | Added `helm registry login` with `--password-stdin` and temporary registry config when explicit OCI auth is configured; pre-authenticated Helm remains supported when auth config is omitted. |
-| 2026-07-08 | Phase 5 classic Helm backend implemented. | Added Forgejo/Gitea-compatible raw chart uploads to `<url>/api/charts` with explicit package token config; real-registry prototype still pending. |
+| 2026-07-08 | Phase 5 classic Helm backend implemented. | Added ChartMuseum-compatible raw chart uploads to `<url>/api/charts` with explicit package token config; local ChartMuseum and live Codeberg package-registry verification later passed. |
 | 2026-07-08 | Local Helm registry smoke test implemented. | Added `make helm-registry-test`, `scripts/test-helm-registries`, and `RELEASE_HELM_OCI_PLAIN_HTTP`; smoke test passed against local Zot for OCI push/pull and ChartMuseum for raw `/api/charts` upload. |
 | 2026-07-08 | Live Codeberg smoke test started. | Added `make codeberg-smoke-test` for `rch/release-tools-smoke`; live release creation and body patching passed with GoReleaser 2.16.0, and package upload was initially blocked by token package-registry auth (`401 reqPackageAccess`). |
 | 2026-07-08 | Live Codeberg chart publishing verified. | `make codeberg-smoke-test` passed with package-registry credentials; the smoke waits for Codeberg Helm `index.yaml` to contain the uploaded chart name and exact release version. |
@@ -443,12 +452,14 @@ Validation gate:
 | 2026-07-08 | Keep `release-tools` as an orchestrator rather than a replacement for GoReleaser, Helm, or signing tools. | Preserves current architecture and keeps repo-specific release definitions in consumer repositories. |
 | 2026-07-08 | Start with local Helm check/package before remote publishing or signing. | Lowest-risk milestone with clear validation and no registry side effects. |
 | 2026-07-08 | Do not silently reuse `RELEASE_TOKEN` for registries and package repositories. | Forge release tokens and registry/package tokens often have different scopes. |
-| 2026-07-08 | Implement OCI chart publishing before classic Forgejo/Gitea packages. | Helm-native `helm push` is the narrowest first remote backend. |
+| 2026-07-08 | Implement OCI chart publishing before classic Helm package uploads. | Helm-native `helm push` is the narrowest first remote backend. |
 | 2026-07-08 | Keep pre-authenticated Helm supported when explicit OCI auth config is omitted. | Preserves the simple Helm-native path for callers that already manage registry login. |
 | 2026-07-08 | Treat existing OCI chart versions as registry-owned errors. | Helm docs do not document overwrite semantics or a force flag, so `release-tools` fails on `helm push` errors rather than trying to overwrite. |
 | 2026-07-08 | Support explicit OCI auth without accepting plaintext passwords in `.release-tools.env`. | Keeps committed config free of registry secrets while allowing CI to provide environment-only credentials. |
-| 2026-07-08 | Use `RELEASE_HELM_CLASSIC_URL` as the classic Helm opt-in switch. | Avoids an extra mode key while the implemented classic backend is specifically Forgejo/Gitea-compatible. |
+| 2026-07-08 | Use `RELEASE_HELM_CLASSIC_URL` as the classic Helm opt-in switch. | Avoids an extra mode key while the implemented classic backend is ChartMuseum-compatible, including Forgejo/Gitea package registries. |
 | 2026-07-08 | Add explicit plain-HTTP OCI opt-in. | Local Zot smoke testing showed Helm attempts HTTPS by default; `RELEASE_HELM_OCI_PLAIN_HTTP=1` maps directly to Helm's `--plain-http` for registry login and push without making insecure transport implicit. |
 | 2026-07-08 | Keep publish chart packages outside `dist`. | A live Codeberg smoke run showed real GoReleaser `--clean` deletes `dist/charts` after pre-publish chart packaging; a temp directory outside the repo preserves fail-before-publish validation without losing packages before upload. |
 | 2026-07-08 | Do not add container images to `RELEASE_ARTIFACTS`. | GoReleaser already owns image build, push, manifest, and image-signing behavior; `release-tools` only detects GoReleaser config and preflights local tools. |
 | 2026-07-08 | Generate chart manifests without a new config key. | The manifest records chart package metadata only after chart packaging or upload succeeds; broader binary artifact manifests wait for GoReleaser metadata merging. |
+| 2026-07-08 | Keep chart and app version source limited to `tag` for current stable behavior. | Tag-derived versions keep binaries and charts aligned; reading `Chart.yaml` versions is useful future work but needs explicit semantics. |
+| 2026-07-08 | Treat classic Helm publishing as ChartMuseum-compatible support. | The implemented raw `POST <url>/api/charts` path works for ChartMuseum-style registries, including Forgejo/Gitea package registries, without making ChartMuseum mandatory. |
