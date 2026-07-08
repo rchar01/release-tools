@@ -74,17 +74,22 @@ if [[ "${1:-}" == package ]]; then
   chart="${2:?missing chart}"
   version=""
   destination=""
+  signed=0
   shift 2
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --version) version="${2:?missing version}"; shift 2 ;;
       --app-version) shift 2 ;;
       --destination) destination="${2:?missing destination}"; shift 2 ;;
+      --sign) signed=1; shift ;;
       *) shift ;;
     esac
   done
   mkdir -p "$destination"
   touch "$destination/$(basename -- "$chart")-$version.tgz"
+  if [[ $signed -eq 1 ]]; then
+    touch "$destination/$(basename -- "$chart")-$version.tgz.prov"
+  fi
 fi
 EOF
 chmod +x "$stub_bin/goreleaser" "$stub_bin/helm"
@@ -95,6 +100,9 @@ cat >"$chart_test_dir/charts/demo/Chart.yaml" <<'EOF'
 apiVersion: v2
 name: demo
 version: 0.0.0
+EOF
+cat >"$chart_test_dir/release-keyring.gpg" <<'EOF'
+fake keyring
 EOF
 cat >"$chart_test_dir/NEWS.md" <<'EOF'
 # News
@@ -109,6 +117,9 @@ RELEASE_OWNER=owner
 RELEASE_ARTIFACTS=charts
 RELEASE_HELM_CHART_DIRS=charts/demo
 RELEASE_HELM_OCI_REPOSITORY=oci://registry.example/charts
+RELEASE_HELM_PROVENANCE=true
+RELEASE_HELM_GPG_KEY=maintainer@example.org
+RELEASE_HELM_GPG_KEYRING=release-keyring.gpg
 RELEASE_NOTES_MODE=news-md
 RELEASE_NOTES_SOURCE=NEWS.md
 RELEASE_BODY_MODE=none
@@ -117,7 +128,7 @@ EOF
 git -C "$chart_test_dir" init --quiet
 git -C "$chart_test_dir" config user.email test@example.invalid
 git -C "$chart_test_dir" config user.name 'Test User'
-git -C "$chart_test_dir" add .goreleaser.yaml .release-tools.env NEWS.md charts/demo/Chart.yaml
+git -C "$chart_test_dir" add .goreleaser.yaml .release-tools.env NEWS.md release-keyring.gpg charts/demo/Chart.yaml
 git -C "$chart_test_dir" commit --quiet -m 'chart release fixture'
 git -C "$chart_test_dir" tag v1.2.3
 HELM_LOG="$chart_test_dir/helm.log" \
@@ -133,11 +144,13 @@ HELM_LOG="$chart_test_dir/helm.log" \
   RELEASE_REPO_ROOT="$chart_test_dir" \
   VERSION=v1.2.3 \
   .tmp/release-tools-test snapshot >/dev/null
-grep -q 'helm package charts/demo --version 1.2.3 --app-version 1.2.3 --destination dist/charts' "$chart_test_dir/helm.log"
+grep -q 'helm package charts/demo --version 1.2.3 --app-version 1.2.3 --destination dist/charts --sign --key maintainer@example.org --keyring .*/release-keyring.gpg' "$chart_test_dir/helm.log"
 test -f "$chart_test_dir/dist/charts/demo-1.2.3.tgz"
+test -f "$chart_test_dir/dist/charts/demo-1.2.3.tgz.prov"
 test -f "$chart_test_dir/dist/release-manifest.json"
 grep -q '"tag": "v1.2.3"' "$chart_test_dir/dist/release-manifest.json"
 grep -q '"path": "dist/charts/demo-1.2.3.tgz"' "$chart_test_dir/dist/release-manifest.json"
+grep -q '"provenance_path": "dist/charts/demo-1.2.3.tgz.prov"' "$chart_test_dir/dist/release-manifest.json"
 rm -f "$chart_test_dir/helm.log" "$chart_test_dir/goreleaser.log"
 rm -f "$chart_test_dir/dist/release-manifest.json"
 HELM_LOG="$chart_test_dir/helm.log" \
@@ -149,11 +162,12 @@ HELM_LOG="$chart_test_dir/helm.log" \
   RELEASE_HELM_OCI_PASSWORD=registry-token \
   VERSION=v1.2.3 \
   .tmp/release-tools-test publish >/dev/null
-grep -q 'helm package charts/demo --version 1.2.3 --app-version 1.2.3 --destination .*/release-tools-helm-charts-v1.2.3-' "$chart_test_dir/helm.log"
+grep -q 'helm package charts/demo --version 1.2.3 --app-version 1.2.3 --destination .*/release-tools-helm-charts-v1.2.3-.* --sign --key maintainer@example.org --keyring .*/release-keyring.gpg' "$chart_test_dir/helm.log"
 grep -q 'helm registry login registry.example --username robot --password-stdin --registry-config' "$chart_test_dir/helm.log"
 grep -q 'helm push .*/demo-1.2.3.tgz oci://registry.example/charts' "$chart_test_dir/helm.log"
 grep -q 'goreleaser --config .goreleaser.yaml release --clean --release-notes' "$chart_test_dir/goreleaser.log"
 grep -q '"oci_ref": "oci://registry.example/charts/demo:1.2.3"' "$chart_test_dir/dist/release-manifest.json"
+grep -q '"provenance_path": "dist/charts/demo-1.2.3.tgz.prov"' "$chart_test_dir/dist/release-manifest.json"
 rm -f "$chart_test_dir/helm.log" "$chart_test_dir/goreleaser.log"
 HELM_LOG="$chart_test_dir/helm.log" \
   GORELEASER_LOG="$chart_test_dir/goreleaser.log" \
@@ -163,7 +177,7 @@ HELM_LOG="$chart_test_dir/helm.log" \
   RELEASE_HELM_OCI_USERNAME=robot \
   RELEASE_HELM_OCI_PASSWORD=registry-token \
   .tmp/release-tools-test publish-tag v1.2.3 >/dev/null
-grep -q 'helm package charts/demo --version 1.2.3 --app-version 1.2.3 --destination .*/release-tools-helm-charts-v1.2.3-' "$chart_test_dir/helm.log"
+grep -q 'helm package charts/demo --version 1.2.3 --app-version 1.2.3 --destination .*/release-tools-helm-charts-v1.2.3-.* --sign --key maintainer@example.org --keyring .*/release-keyring.gpg' "$chart_test_dir/helm.log"
 grep -q 'helm registry login registry.example --username robot --password-stdin --registry-config' "$chart_test_dir/helm.log"
 grep -q 'helm push .*/demo-1.2.3.tgz oci://registry.example/charts' "$chart_test_dir/helm.log"
 grep -q "helm-pwd $chart_test_dir/.tmp/release-v1.2.3" "$chart_test_dir/helm.log"
@@ -171,7 +185,9 @@ grep -q "goreleaser-pwd $chart_test_dir/.tmp/release-v1.2.3" "$chart_test_dir/go
 test -f "$chart_test_dir/dist/release-manifest.json"
 grep -q '"oci_ref": "oci://registry.example/charts/demo:1.2.3"' "$chart_test_dir/dist/release-manifest.json"
 grep -q '"path": "dist/charts/demo-1.2.3.tgz"' "$chart_test_dir/dist/release-manifest.json"
+grep -q '"provenance_path": "dist/charts/demo-1.2.3.tgz.prov"' "$chart_test_dir/dist/release-manifest.json"
 test -f "$chart_test_dir/dist/charts/demo-1.2.3.tgz"
+test -f "$chart_test_dir/dist/charts/demo-1.2.3.tgz.prov"
 rm -rf "$chart_test_dir"
 
 rm -f .tmp/release-tools-test

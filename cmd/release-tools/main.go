@@ -41,6 +41,9 @@ var allowedConfigKeys = map[string]bool{
 	"RELEASE_HELM_CLASSIC_URL":        true,
 	"RELEASE_HELM_CLASSIC_USERNAME":   true,
 	"RELEASE_HELM_CLASSIC_TOKEN_FILE": true,
+	"RELEASE_HELM_PROVENANCE":         true,
+	"RELEASE_HELM_GPG_KEY":            true,
+	"RELEASE_HELM_GPG_KEYRING":        true,
 	"RELEASE_NOTES_SOURCE":            true,
 	"RELEASE_NOTES_MODE":              true,
 	"RELEASE_BODY_MODE":               true,
@@ -118,6 +121,8 @@ type releaseManifestHelmChart struct {
 	Version          string `json:"version"`
 	Path             string `json:"path"`
 	SHA256           string `json:"sha256"`
+	ProvenancePath   string `json:"provenance_path,omitempty"`
+	ProvenanceSHA256 string `json:"provenance_sha256,omitempty"`
 	OCIRef           string `json:"oci_ref,omitempty"`
 	ClassicURL       string `json:"classic_url,omitempty"`
 	ClassicUploadURL string `json:"classic_upload_url,omitempty"`
@@ -605,6 +610,11 @@ func (a *app) doctor() error {
 		a.log("Helm chart dirs: %s", strings.Join(dirs, ", "))
 		a.log("Helm version source: %s", a.helmVersionFrom())
 		a.log("Helm app version source: %s", a.helmAppVersionFrom())
+		a.log("Helm provenance: %t", a.helmProvenance())
+		if a.helmProvenance() {
+			a.log("Helm GPG key: %s", a.helmGPGKey())
+			a.log("Helm GPG keyring: %s", a.helmGPGKeyringPath())
+		}
 		if repository := a.helmOCIRepository(); repository != "" {
 			a.log("Helm OCI repository: %s", repository)
 		}
@@ -784,7 +794,7 @@ func (a *app) runHelmPackagesTo(version, destination string) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := a.runHelm(helmBin, "package", dir, "--version", version, "--app-version", appVersion, "--destination", destination); err != nil {
+		if err := a.runHelm(helmBin, a.helmPackageArgs(dir, version, appVersion, destination)...); err != nil {
 			return nil, err
 		}
 		after, err := a.helmPackageFiles(destination, version)
@@ -795,9 +805,25 @@ func (a *app) runHelmPackagesTo(version, destination string) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
+		if a.helmProvenance() {
+			if _, err := os.Stat(a.repoPath(helmProvenancePath(chartPackage))); err != nil {
+				if errors.Is(err, os.ErrNotExist) {
+					return nil, fmt.Errorf("Helm provenance file not found for package: %s", chartPackage)
+				}
+				return nil, err
+			}
+		}
 		packages = append(packages, chartPackage)
 	}
 	return packages, nil
+}
+
+func (a *app) helmPackageArgs(chartDir, version, appVersion, destination string) []string {
+	args := []string{"package", chartDir, "--version", version, "--app-version", appVersion, "--destination", destination}
+	if a.helmProvenance() {
+		args = append(args, "--sign", "--key", a.helmGPGKey(), "--keyring", a.helmGPGKeyringPath())
+	}
+	return args
 }
 
 func (a *app) helmPackageFiles(destination, version string) (map[string]fileState, error) {
@@ -905,6 +931,17 @@ func (a *app) releaseManifestHelmCharts(version string, packages []string) ([]re
 			Path:    manifestPathForRepo(a.repoRoot, chartPackage),
 			SHA256:  sha,
 		}
+		provenancePath := helmProvenancePath(chartPackage)
+		if _, err := os.Stat(a.repoPath(provenancePath)); err == nil {
+			provenanceSHA, err := fileSHA256(a.repoPath(provenancePath))
+			if err != nil {
+				return nil, err
+			}
+			chart.ProvenancePath = manifestPathForRepo(a.repoRoot, provenancePath)
+			chart.ProvenanceSHA256 = provenanceSHA
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
 		if repository := a.helmOCIRepository(); repository != "" && name != "" {
 			chart.OCIRef = strings.TrimRight(repository, "/") + "/" + name + ":" + version
 		}
@@ -942,6 +979,14 @@ func (a *app) persistHelmPackages(packages []string) ([]string, error) {
 		if err := copyFile(a.repoPath(chartPackage), target); err != nil {
 			return nil, err
 		}
+		provenancePath := helmProvenancePath(chartPackage)
+		if _, err := os.Stat(a.repoPath(provenancePath)); err == nil {
+			if err := copyFile(a.repoPath(provenancePath), target+".prov"); err != nil {
+				return nil, err
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
 		persisted = append(persisted, filepath.Join("dist", "charts", name))
 	}
 	sort.Strings(persisted)
@@ -951,6 +996,10 @@ func (a *app) persistHelmPackages(packages []string) ([]string, error) {
 func helmPackageName(chartPackage, version string) string {
 	name := filepath.Base(chartPackage)
 	return strings.TrimSuffix(name, "-"+version+".tgz")
+}
+
+func helmProvenancePath(chartPackage string) string {
+	return chartPackage + ".prov"
 }
 
 func manifestPathForRepo(repoRoot, path string) string {
@@ -2143,6 +2192,9 @@ func (a *app) validateChartConfig() error {
 	if err := a.validateHelmClassicConfig(); err != nil {
 		return err
 	}
+	if err := validateConfigBool("RELEASE_HELM_PROVENANCE", a.env["RELEASE_HELM_PROVENANCE"]); err != nil {
+		return err
+	}
 	enabled, err := a.chartsEnabled()
 	if err != nil {
 		return err
@@ -2156,8 +2208,14 @@ func (a *app) validateChartConfig() error {
 	if !enabled && a.helmClassicURL() != "" {
 		return errors.New("RELEASE_HELM_CLASSIC_URL requires RELEASE_ARTIFACTS to include charts")
 	}
+	if !enabled && a.helmProvenanceConfigured() {
+		return errors.New("RELEASE_HELM_PROVENANCE, RELEASE_HELM_GPG_KEY, and RELEASE_HELM_GPG_KEYRING require RELEASE_ARTIFACTS to include charts")
+	}
 	if !enabled {
 		return nil
+	}
+	if err := a.validateHelmProvenanceConfig(); err != nil {
+		return err
 	}
 	dirs, err := a.helmChartDirs()
 	if err != nil {
@@ -2291,6 +2349,53 @@ func validateConfigBool(key, value string) error {
 	default:
 		return fmt.Errorf("%s must be a boolean value", key)
 	}
+}
+
+func (a *app) helmProvenance() bool {
+	return configBool(a.env["RELEASE_HELM_PROVENANCE"])
+}
+
+func (a *app) helmGPGKey() string {
+	return strings.TrimSpace(a.env["RELEASE_HELM_GPG_KEY"])
+}
+
+func (a *app) helmGPGKeyring() string {
+	return strings.TrimSpace(a.env["RELEASE_HELM_GPG_KEYRING"])
+}
+
+func (a *app) helmGPGKeyringPath() string {
+	keyring := expandTokenFilePath(a.helmGPGKeyring())
+	if keyring == "" || filepath.IsAbs(keyring) {
+		return keyring
+	}
+	return filepath.Join(a.repoRoot, keyring)
+}
+
+func (a *app) helmProvenanceConfigured() bool {
+	return a.env["RELEASE_HELM_PROVENANCE"] != "" || a.helmGPGKey() != "" || a.helmGPGKeyring() != ""
+}
+
+func (a *app) validateHelmProvenanceConfig() error {
+	if err := validateConfigBool("RELEASE_HELM_PROVENANCE", a.env["RELEASE_HELM_PROVENANCE"]); err != nil {
+		return err
+	}
+	if !a.helmProvenance() {
+		if a.helmGPGKey() != "" || a.helmGPGKeyring() != "" {
+			return errors.New("RELEASE_HELM_GPG_KEY and RELEASE_HELM_GPG_KEYRING require RELEASE_HELM_PROVENANCE=true")
+		}
+		return nil
+	}
+	if a.helmGPGKey() == "" {
+		return errors.New("RELEASE_HELM_GPG_KEY is required when RELEASE_HELM_PROVENANCE=true")
+	}
+	if a.helmGPGKeyring() == "" {
+		return errors.New("RELEASE_HELM_GPG_KEYRING is required when RELEASE_HELM_PROVENANCE=true")
+	}
+	file, err := os.Open(a.helmGPGKeyringPath())
+	if err != nil {
+		return fmt.Errorf("RELEASE_HELM_GPG_KEYRING is not readable: %s", a.helmGPGKeyringPath())
+	}
+	return file.Close()
 }
 
 func (a *app) helmOCIRepositoryChecked() (string, error) {

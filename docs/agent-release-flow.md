@@ -172,13 +172,16 @@ Reason:
   starts
 - chart-enabled snapshot, publish, and publish-tag flows write a deterministic
   `dist/release-manifest.json` with chart package names, versions, paths,
-  SHA-256 values, and configured registry targets after local packaging or
-  remote chart publishing succeeds
+  SHA-256 values, optional provenance metadata, and configured registry targets
+  after local packaging or remote chart publishing succeeds
+- classic Helm provenance uses Helm's own `helm package --sign` behavior with an
+  explicit key and keyring
 - publish commands copy successfully uploaded chart packages back into
   `dist/charts` before writing the manifest so recorded paths remain valid
-- `publish-tag` copies the chart packages and manifest out of the clean
-  temporary tag clone before the clone is removed
-- chart signing can be added without changing the command surface
+- `publish-tag` copies the chart packages, provenance files, and manifest out of
+  the clean temporary tag clone before the clone is removed
+- OCI chart signing is deferred until immutable digest-based signing is proven
+  against real registries
 
 ### Go Preflight Is Optional
 

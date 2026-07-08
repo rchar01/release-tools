@@ -155,6 +155,9 @@ RELEASE_HELM_APP_VERSION_FROM=tag
 # RELEASE_HELM_CLASSIC_URL=https://forge.example/api/packages/myowner/helm
 # RELEASE_HELM_CLASSIC_USERNAME=robot
 # RELEASE_HELM_CLASSIC_TOKEN_FILE=~/.config/forgejo/helm-token
+# RELEASE_HELM_PROVENANCE=0
+# RELEASE_HELM_GPG_KEY=maintainer@example.org
+# RELEASE_HELM_GPG_KEYRING=~/.gnupg/secring.gpg
 ```
 
 Only `tag` is currently supported for Helm chart and app versions. A release tag
@@ -174,6 +177,8 @@ Chart-enabled commands add local Helm behavior:
   succeeds
 - when `RELEASE_HELM_CLASSIC_URL` is set, `publish` and `publish-tag` upload
   each packaged chart to `<url>/api/charts` after GoReleaser succeeds
+- when `RELEASE_HELM_PROVENANCE=1`, chart packaging adds Helm provenance files
+  beside the packaged charts
 - chart-enabled snapshot, publish, and publish-tag flows write
   `dist/release-manifest.json` with chart package metadata
 
@@ -193,7 +198,16 @@ temporary registry config for `helm push`. Plaintext
 Set `RELEASE_HELM_OCI_PLAIN_HTTP=1` only for disposable or otherwise explicitly
 trusted insecure registries; it appends Helm's `--plain-http` flag to OCI chart
 registry login and pushes.
-Chart signing is not implemented yet.
+
+Set `RELEASE_HELM_PROVENANCE=1` to sign packaged charts with Helm's classic
+provenance support. When enabled, `RELEASE_HELM_GPG_KEY` and
+`RELEASE_HELM_GPG_KEYRING` are required, and `release-tools` runs
+`helm package ... --sign --key <key> --keyring <keyring>`. Relative keyring
+paths are resolved from the release repository root, including the clean tag
+clone used by `publish-tag`. The keyring must be readable before publish starts.
+OCI chart signing is not implemented; chart OCI signatures are intentionally
+deferred until digest-based signing behavior is validated against real
+registries.
 
 `RELEASE_HELM_CLASSIC_URL` is for Forgejo/Gitea-compatible classic Helm package
 registries. Set it to the Helm package base URL, for example
@@ -224,6 +238,8 @@ The chart release manifest currently uses this schema:
         "version": "1.2.3",
         "path": "dist/charts/myapp-1.2.3.tgz",
         "sha256": "...",
+        "provenance_path": "dist/charts/myapp-1.2.3.tgz.prov",
+        "provenance_sha256": "...",
         "oci_ref": "oci://registry.example.com/myowner/charts/myapp:1.2.3",
         "classic_url": "https://forge.example/api/packages/myowner/helm",
         "classic_upload_url": "https://forge.example/api/packages/myowner/helm/api/charts"
@@ -233,15 +249,16 @@ The chart release manifest currently uses this schema:
 }
 ```
 
-The OCI and classic fields appear only when those targets are configured.
-Manifest chart package paths are repo-relative `dist/charts/...` paths. During
-publish commands, charts are first packaged in a temporary directory outside the
-repository so GoReleaser cannot clean them before upload. After chart pushes or
-uploads succeed, those packages are copied back into `dist/charts` before the
-manifest is written. For `publish-tag`, the chart packages and manifest are
-copied from the clean temporary tag clone back to the caller repository. The
-manifest is not yet uploaded as a release asset and does not yet merge
-GoReleaser's `dist/artifacts.json` metadata.
+The provenance, OCI, and classic fields appear only when those outputs or
+targets are configured. Manifest chart package paths are repo-relative
+`dist/charts/...` paths. During publish commands, charts are first packaged in a
+temporary directory outside the repository so GoReleaser cannot clean them before
+upload. After chart pushes or uploads succeed, those packages and `.prov` files
+are copied back into `dist/charts` before the manifest is written. For
+`publish-tag`, the chart packages, provenance files, and manifest are copied
+from the clean temporary tag clone back to the caller repository. The manifest
+is not yet uploaded as a release asset and does not yet merge GoReleaser's
+`dist/artifacts.json` metadata.
 
 Required for release commands:
 

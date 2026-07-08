@@ -341,6 +341,116 @@ func TestDoctorReportsArtifacts(t *testing.T) {
 	}
 }
 
+func TestDoctorReportsHelmProvenance(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".goreleaser.yaml"), "version: 2\n")
+	writeFile(t, filepath.Join(dir, "release-keyring.gpg"), "keyring")
+	writeChart(t, filepath.Join(dir, "charts", "demo"), "demo")
+	var stdout bytes.Buffer
+	a := &app{
+		repoRoot: dir,
+		env: map[string]string{
+			"RELEASE_PROJECT":          "demo",
+			"RELEASE_OWNER":            "owner",
+			"RELEASE_ARTIFACTS":        "charts",
+			"RELEASE_HELM_CHART_DIRS":  "charts/demo",
+			"RELEASE_HELM_PROVENANCE":  "true",
+			"RELEASE_HELM_GPG_KEY":     "maintainer@example.org",
+			"RELEASE_HELM_GPG_KEYRING": "release-keyring.gpg",
+			"RELEASE_NOTES_MODE":       "none",
+			"RELEASE_BODY_MODE":        "none",
+			"GORELEASER_BIN":           "/tools/goreleaser",
+		},
+		commands: &fakeCommandRunner{combinedOutput: []byte("GitVersion: v2.16.0\n")},
+		stdout:   &stdout,
+		stderr:   ioDiscard(),
+	}
+	if err := a.doctor(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "[INFO] Helm provenance: true\n") {
+		t.Fatalf("doctor output = %q, want provenance line", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "[INFO] Helm GPG key: maintainer@example.org\n") {
+		t.Fatalf("doctor output = %q, want GPG key line", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "[INFO] Helm GPG keyring: "+filepath.Join(dir, "release-keyring.gpg")+"\n") {
+		t.Fatalf("doctor output = %q, want GPG keyring line", stdout.String())
+	}
+}
+
+func TestValidateHelmProvenanceConfig(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "release-keyring.gpg"), "keyring")
+	writeChart(t, filepath.Join(dir, "charts", "demo"), "demo")
+
+	tests := []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{
+			name: "invalid bool",
+			env:  map[string]string{"RELEASE_HELM_PROVENANCE": "maybe"},
+			want: "RELEASE_HELM_PROVENANCE must be a boolean value",
+		},
+		{
+			name: "requires charts",
+			env:  map[string]string{"RELEASE_HELM_PROVENANCE": "true"},
+			want: "RELEASE_HELM_PROVENANCE, RELEASE_HELM_GPG_KEY, and RELEASE_HELM_GPG_KEYRING require RELEASE_ARTIFACTS to include charts",
+		},
+		{
+			name: "key requires provenance",
+			env: map[string]string{
+				"RELEASE_ARTIFACTS":        "charts",
+				"RELEASE_HELM_CHART_DIRS":  "charts/demo",
+				"RELEASE_HELM_GPG_KEY":     "maintainer@example.org",
+				"RELEASE_HELM_GPG_KEYRING": "release-keyring.gpg",
+			},
+			want: "RELEASE_HELM_GPG_KEY and RELEASE_HELM_GPG_KEYRING require RELEASE_HELM_PROVENANCE=true",
+		},
+		{
+			name: "missing key",
+			env: map[string]string{
+				"RELEASE_ARTIFACTS":        "charts",
+				"RELEASE_HELM_CHART_DIRS":  "charts/demo",
+				"RELEASE_HELM_PROVENANCE":  "true",
+				"RELEASE_HELM_GPG_KEYRING": "release-keyring.gpg",
+			},
+			want: "RELEASE_HELM_GPG_KEY is required when RELEASE_HELM_PROVENANCE=true",
+		},
+		{
+			name: "missing keyring",
+			env: map[string]string{
+				"RELEASE_ARTIFACTS":       "charts",
+				"RELEASE_HELM_CHART_DIRS": "charts/demo",
+				"RELEASE_HELM_PROVENANCE": "true",
+				"RELEASE_HELM_GPG_KEY":    "maintainer@example.org",
+			},
+			want: "RELEASE_HELM_GPG_KEYRING is required when RELEASE_HELM_PROVENANCE=true",
+		},
+		{
+			name: "unreadable keyring",
+			env: map[string]string{
+				"RELEASE_ARTIFACTS":        "charts",
+				"RELEASE_HELM_CHART_DIRS":  "charts/demo",
+				"RELEASE_HELM_PROVENANCE":  "true",
+				"RELEASE_HELM_GPG_KEY":     "maintainer@example.org",
+				"RELEASE_HELM_GPG_KEYRING": "missing.gpg",
+			},
+			want: "RELEASE_HELM_GPG_KEYRING is not readable:",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := &app{repoRoot: dir, env: tt.env}
+			if err := a.validateChartConfig(); err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestDetectGoreleaserContainerConfig(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, ".goreleaser.yaml"), `version: 2
@@ -651,6 +761,47 @@ func TestSnapshotPackagesHelmCharts(t *testing.T) {
 	}
 }
 
+func TestSnapshotSignsHelmChartsWithProvenance(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "release-keyring.gpg"), "keyring")
+	writeChart(t, filepath.Join(dir, "charts", "demo"), "demo")
+	fake := &fakeCommandRunner{output: []byte("v1.2.3\n")}
+	a := &app{
+		repoRoot: dir,
+		env: map[string]string{
+			"RELEASE_ARTIFACTS":        "charts",
+			"RELEASE_HELM_CHART_DIRS":  "charts/demo",
+			"RELEASE_HELM_PROVENANCE":  "true",
+			"RELEASE_HELM_GPG_KEY":     "maintainer@example.org",
+			"RELEASE_HELM_GPG_KEYRING": "release-keyring.gpg",
+			"GORELEASER_BIN":           "/tools/goreleaser",
+		},
+		commands: fake,
+		stdout:   ioDiscard(),
+		stderr:   ioDiscard(),
+	}
+
+	if err := a.snapshot(); err != nil {
+		t.Fatal(err)
+	}
+	want := "/fake/helm package charts/demo --version 1.2.3 --app-version 1.2.3 --destination dist/charts --sign --key maintainer@example.org --keyring " + filepath.Join(dir, "release-keyring.gpg")
+	if got := commandStrings(fake.runCommands)[1]; got != want {
+		t.Fatalf("helm package command = %q, want %q", got, want)
+	}
+	manifest := readReleaseManifest(t, filepath.Join(dir, "dist", "release-manifest.json"))
+	chart := manifest.Artifacts.HelmCharts[0]
+	if chart.ProvenancePath != "dist/charts/demo-1.2.3.tgz.prov" {
+		t.Fatalf("provenance path = %q, want dist/charts/demo-1.2.3.tgz.prov", chart.ProvenancePath)
+	}
+	sha, err := fileSHA256(filepath.Join(dir, "dist", "charts", "demo-1.2.3.tgz.prov"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if chart.ProvenanceSHA256 != sha {
+		t.Fatalf("provenance sha = %q, want %q", chart.ProvenanceSHA256, sha)
+	}
+}
+
 func TestPublishPackagesHelmChartsBeforeGoreleaser(t *testing.T) {
 	dir := t.TempDir()
 	writeChart(t, filepath.Join(dir, "charts", "demo"), "demo")
@@ -685,6 +836,47 @@ func TestPublishPackagesHelmChartsBeforeGoreleaser(t *testing.T) {
 	assertPublishHelmPackageCommand(t, got[0], "charts/demo", "1.2.3", dir)
 	if !strings.HasPrefix(got[1], "/tools/goreleaser --config .goreleaser.yaml release --clean --release-notes ") {
 		t.Fatalf("second command = %q, want goreleaser publish", got[1])
+	}
+}
+
+func TestPublishPersistsHelmProvenance(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "release-keyring.gpg"), "keyring")
+	writeChart(t, filepath.Join(dir, "charts", "demo"), "demo")
+	writeFile(t, filepath.Join(dir, "NEWS.md"), "# News\n\n## v1.2.3 - 2026-07-02\n\n- release\n")
+	fake := &fakeCommandRunner{}
+	a := &app{
+		repoRoot: dir,
+		tmpDir:   filepath.Join(dir, ".tmp"),
+		env: map[string]string{
+			"VERSION":                  "v1.2.3",
+			"RELEASE_FORGE":            "gitea",
+			"RELEASE_TOKEN":            "token",
+			"RELEASE_ARTIFACTS":        "charts",
+			"RELEASE_HELM_CHART_DIRS":  "charts/demo",
+			"RELEASE_HELM_PROVENANCE":  "true",
+			"RELEASE_HELM_GPG_KEY":     "maintainer@example.org",
+			"RELEASE_HELM_GPG_KEYRING": "release-keyring.gpg",
+			"RELEASE_NOTES_MODE":       "news-md",
+			"RELEASE_NOTES_SOURCE":     "NEWS.md",
+			"RELEASE_BODY_MODE":        "none",
+			"GORELEASER_BIN":           "/tools/goreleaser",
+		},
+		commands: fake,
+		stdout:   ioDiscard(),
+		stderr:   ioDiscard(),
+	}
+
+	if err := a.publish(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "dist", "charts", "demo-1.2.3.tgz.prov")); err != nil {
+		t.Fatalf("persisted provenance missing: %v", err)
+	}
+	manifest := readReleaseManifest(t, filepath.Join(dir, "dist", "release-manifest.json"))
+	chart := manifest.Artifacts.HelmCharts[0]
+	if chart.ProvenancePath != "dist/charts/demo-1.2.3.tgz.prov" {
+		t.Fatalf("manifest provenance path = %q, want stable provenance path", chart.ProvenancePath)
 	}
 }
 
@@ -2285,6 +2477,7 @@ func fakeHelmPackage(cmd runner.Command) error {
 	chart := cmd.Args[1]
 	version := ""
 	destination := ""
+	signed := false
 	for i := 2; i < len(cmd.Args); i++ {
 		switch cmd.Args[i] {
 		case "--version":
@@ -2297,6 +2490,8 @@ func fakeHelmPackage(cmd runner.Command) error {
 				destination = cmd.Args[i+1]
 				i++
 			}
+		case "--sign":
+			signed = true
 		}
 	}
 	if version == "" || destination == "" {
@@ -2313,7 +2508,14 @@ func fakeHelmPackage(cmd runner.Command) error {
 	if err := os.MkdirAll(destinationPath, 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(destinationPath, name+"-"+version+".tgz"), []byte("chart"), 0o644)
+	packagePath := filepath.Join(destinationPath, name+"-"+version+".tgz")
+	if err := os.WriteFile(packagePath, []byte("chart"), 0o644); err != nil {
+		return err
+	}
+	if signed {
+		return os.WriteFile(packagePath+".prov", []byte("provenance"), 0o644)
+	}
+	return nil
 }
 
 func fakeChartName(chartFile string) string {

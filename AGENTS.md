@@ -59,6 +59,9 @@
   - `RELEASE_HELM_CLASSIC_URL`
   - `RELEASE_HELM_CLASSIC_USERNAME`
   - `RELEASE_HELM_CLASSIC_TOKEN_FILE`
+  - `RELEASE_HELM_PROVENANCE`
+  - `RELEASE_HELM_GPG_KEY`
+  - `RELEASE_HELM_GPG_KEYRING`
   - `RELEASE_NOTES_SOURCE`
   - `RELEASE_NOTES_MODE`
   - `RELEASE_BODY_MODE`
@@ -101,6 +104,11 @@
   for the classic Helm package registry.
 - `RELEASE_HELM_CLASSIC_TOKEN` is environment-only and is intentionally not a
   supported `.release-tools.env` key.
+- `RELEASE_HELM_PROVENANCE=1` makes chart packaging use Helm classic provenance
+  signing with `helm package --sign`.
+- `RELEASE_HELM_GPG_KEY` and `RELEASE_HELM_GPG_KEYRING` are required when Helm
+  provenance is enabled; relative keyring paths are resolved from the release
+  repository root.
 - Container image publishing is detected from GoReleaser config, not from a
   `RELEASE_ARTIFACTS` value; `dockers`, `dockers_v2`, `docker_manifests`, and
   `docker_signs` trigger local tool preflights in `doctor` and `tools-check`.
@@ -163,8 +171,8 @@
   packaged charts to `<url>/api/charts` after GoReleaser succeeds.
 - Chart-enabled snapshot, publish, and publish-tag flows write
   `dist/release-manifest.json` with the release tag, chart version, packaged
-  chart path, SHA-256, and configured Helm registry targets after packaging or
-  chart upload succeeds.
+  chart path, SHA-256, optional provenance file path/SHA-256, and configured
+  Helm registry targets after packaging or chart upload succeeds.
 - `publish-tag` publishes from a clean temporary clone of the exact tag.
 - GoReleaser must run from the release repository root.
 - unset `RELEASE_ARTIFACTS` keeps current binaries-only behavior.
@@ -185,6 +193,8 @@
   for `RELEASE_FORGE`, or `RELEASE_TOKEN_FILE` in that order.
 - GoReleaser resolution checks `GORELEASER_BIN`, then common install locations.
 - Helm is required only when `RELEASE_ARTIFACTS` includes `charts`.
+- Helm chart provenance signing uses Helm's built-in `helm package --sign` with
+  an explicit GPG key and keyring; OCI chart signing is not implemented.
 - Docker/Podman/Cosign are required only when GoReleaser container image or
   image-signing config is detected.
 - Go baseline is Go 1.26 with toolchain `go1.26.4`.

@@ -37,7 +37,7 @@ expect_error() {
 }
 
 rm -rf "$TMP_DIR"
-mkdir -p "$TMP_DIR/no-config" "$TMP_DIR/no-tag" "$TMP_DIR/missing-goreleaser" "$TMP_DIR/missing-news" "$TMP_DIR/invalid-forge" "$TMP_DIR/invalid-artifacts" "$TMP_DIR/empty-artifacts" "$TMP_DIR/empty-artifact-entry" "$TMP_DIR/missing-chart-dirs" "$TMP_DIR/missing-chart-yaml" "$TMP_DIR/invalid-helm-version-from" "$TMP_DIR/symlink-chart-dir" "$TMP_DIR/outside-chart"
+mkdir -p "$TMP_DIR/no-config" "$TMP_DIR/no-tag" "$TMP_DIR/missing-goreleaser" "$TMP_DIR/missing-news" "$TMP_DIR/invalid-forge" "$TMP_DIR/invalid-artifacts" "$TMP_DIR/empty-artifacts" "$TMP_DIR/empty-artifact-entry" "$TMP_DIR/missing-chart-dirs" "$TMP_DIR/missing-chart-yaml" "$TMP_DIR/invalid-helm-version-from" "$TMP_DIR/invalid-helm-provenance" "$TMP_DIR/helm-provenance-no-charts" "$TMP_DIR/helm-provenance-missing-key" "$TMP_DIR/symlink-chart-dir" "$TMP_DIR/outside-chart"
 
 cat >"$TMP_DIR/no-tag/.release-tools.env" <<'EOF'
 RELEASE_PROJECT=demo
@@ -108,6 +108,41 @@ RELEASE_HELM_CHART_DIRS=charts/demo
 RELEASE_HELM_VERSION_FROM=chart
 EOF
 
+cat >"$TMP_DIR/invalid-helm-provenance/.release-tools.env" <<'EOF'
+RELEASE_PROJECT=demo
+RELEASE_OWNER=owner
+RELEASE_ARTIFACTS=charts
+RELEASE_HELM_CHART_DIRS=charts/demo
+RELEASE_HELM_PROVENANCE=maybe
+EOF
+
+cat >"$TMP_DIR/helm-provenance-no-charts/.release-tools.env" <<'EOF'
+RELEASE_PROJECT=demo
+RELEASE_OWNER=owner
+RELEASE_HELM_PROVENANCE=true
+EOF
+
+cat >"$TMP_DIR/helm-provenance-missing-key/.release-tools.env" <<'EOF'
+RELEASE_PROJECT=demo
+RELEASE_OWNER=owner
+RELEASE_ARTIFACTS=charts
+RELEASE_HELM_CHART_DIRS=charts/demo
+RELEASE_HELM_PROVENANCE=true
+RELEASE_HELM_GPG_KEYRING=release-keyring.gpg
+EOF
+mkdir -p "$TMP_DIR/invalid-helm-provenance/charts/demo" "$TMP_DIR/helm-provenance-missing-key/charts/demo"
+cat >"$TMP_DIR/invalid-helm-provenance/charts/demo/Chart.yaml" <<'EOF'
+apiVersion: v2
+name: demo
+version: 0.0.0
+EOF
+cat >"$TMP_DIR/helm-provenance-missing-key/charts/demo/Chart.yaml" <<'EOF'
+apiVersion: v2
+name: demo
+version: 0.0.0
+EOF
+touch "$TMP_DIR/helm-provenance-missing-key/release-keyring.gpg"
+
 cat >"$TMP_DIR/symlink-chart-dir/.release-tools.env" <<'EOF'
 RELEASE_PROJECT=demo
 RELEASE_OWNER=owner
@@ -157,6 +192,15 @@ expect_error '[ERROR] Helm Chart.yaml not found:' \
 
 expect_error '[ERROR] unsupported RELEASE_HELM_VERSION_FROM: chart' \
 	env RELEASE_REPO_ROOT="$TMP_DIR/invalid-helm-version-from" GORELEASER_BIN=/bin/true "$RELEASE_TOOLS_BIN" doctor
+
+expect_error '[ERROR] RELEASE_HELM_PROVENANCE must be a boolean value' \
+	env RELEASE_REPO_ROOT="$TMP_DIR/invalid-helm-provenance" GORELEASER_BIN=/bin/true "$RELEASE_TOOLS_BIN" doctor
+
+expect_error '[ERROR] RELEASE_HELM_PROVENANCE, RELEASE_HELM_GPG_KEY, and RELEASE_HELM_GPG_KEYRING require RELEASE_ARTIFACTS to include charts' \
+	env RELEASE_REPO_ROOT="$TMP_DIR/helm-provenance-no-charts" GORELEASER_BIN=/bin/true "$RELEASE_TOOLS_BIN" doctor
+
+expect_error '[ERROR] RELEASE_HELM_GPG_KEY is required when RELEASE_HELM_PROVENANCE=true' \
+	env RELEASE_REPO_ROOT="$TMP_DIR/helm-provenance-missing-key" GORELEASER_BIN=/bin/true "$RELEASE_TOOLS_BIN" doctor
 
 expect_error '[ERROR] Helm chart dir must stay inside repository:' \
 	env RELEASE_REPO_ROOT="$TMP_DIR/symlink-chart-dir" GORELEASER_BIN=/bin/true "$RELEASE_TOOLS_BIN" doctor

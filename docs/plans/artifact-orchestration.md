@@ -320,11 +320,11 @@ Tasks:
 
 - [ ] Add `RELEASE_SIGN_MODE=none|cosign|notation` only when at least one mode is
   implemented.
-- [ ] Add `doctor` checks for `cosign`, `notation`, or GPG based on enabled
-  signing behavior.
-- [ ] Add classic Helm provenance support with `helm package --sign`.
-- [ ] Add `RELEASE_HELM_PROVENANCE=true|false`.
-- [ ] Add GPG config keys only when classic provenance is implemented.
+- [x] Add `doctor` checks for GPG key/keyring config based on enabled Helm
+  provenance behavior.
+- [x] Add classic Helm provenance support with `helm package --sign`.
+- [x] Add `RELEASE_HELM_PROVENANCE=true|false`.
+- [x] Add GPG config keys only when classic provenance is implemented.
 - [ ] Prototype OCI Helm signing with Cosign or `helm-sigstore` against the real
   target registry.
 - [ ] Sign OCI Helm charts by immutable digest, not just tag, if OCI signing is
@@ -334,8 +334,8 @@ Tasks:
 
 Validation gate:
 
-- [ ] Unit tests for signing config validation.
-- [ ] Stubbed signing command tests.
+- [x] Unit tests for signing config validation.
+- [x] Stubbed signing command tests.
 - [ ] Manual end-to-end signing and verification notes for the chosen backend.
 - [ ] `make verify`
 - [ ] `make container-test`
@@ -357,7 +357,7 @@ Tasks:
 - [x] Record classic chart package URLs when available.
 - [ ] Merge GoReleaser artifact metadata if `dist/artifacts.json` or equivalent
   is available and stable enough.
-- [ ] Record signatures and provenance files when generated.
+- [x] Record signatures and provenance files when generated.
 - [ ] Add optional upload as a forge release asset only after upload behavior is
   designed.
 
