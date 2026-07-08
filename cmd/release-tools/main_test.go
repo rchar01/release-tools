@@ -711,6 +711,65 @@ func TestPublishTagPushesHelmChartsFromClone(t *testing.T) {
 	}
 }
 
+func TestPublishTagPatchesReleaseBodyBeforeFailingHelmOCIPush(t *testing.T) {
+	dir := t.TempDir()
+	repo := filepath.Join(dir, "repo")
+	clone := filepath.Join(dir, ".tmp", "release-v1.2.3")
+	patched := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/owner/demo/releases/tags/v1.2.3":
+			_, _ = w.Write([]byte(`{"id":42}`))
+		case r.Method == http.MethodPatch && r.URL.Path == "/repos/owner/demo/releases/42":
+			patched = true
+			_, _ = w.Write([]byte(`{}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.String())
+		}
+	}))
+	defer server.Close()
+	fake := &fakeCommandRunner{}
+	fake.onRun = func(cmd runner.Command) error {
+		if cmd.Name == "git" && len(cmd.Args) > 0 && cmd.Args[0] == "clone" {
+			writeChart(t, filepath.Join(clone, "charts", "demo"), "demo")
+			writeFile(t, filepath.Join(clone, "NEWS.md"), "# News\n\n## v1.2.3 - 2026-07-02\n\n- release\n")
+			writeFile(t, filepath.Join(clone, ".goreleaser.yaml"), "version: 2\n")
+		}
+		if cmd.Name == "/fake/helm" && len(cmd.Args) > 0 && cmd.Args[0] == "push" {
+			return errors.New("helm push failed")
+		}
+		return nil
+	}
+	a := &app{
+		repoRoot: repo,
+		tmpDir:   filepath.Join(dir, ".tmp"),
+		env: map[string]string{
+			"RELEASE_FORGE":               "gitea",
+			"RELEASE_API_URL":             server.URL,
+			"RELEASE_OWNER":               "owner",
+			"RELEASE_PROJECT":             "demo",
+			"RELEASE_TOKEN":               "token",
+			"RELEASE_ARTIFACTS":           "charts",
+			"RELEASE_HELM_CHART_DIRS":     "charts/demo",
+			"RELEASE_HELM_OCI_REPOSITORY": "oci://registry.example/charts",
+			"RELEASE_NOTES_MODE":          "news-md",
+			"RELEASE_NOTES_SOURCE":        "NEWS.md",
+			"RELEASE_BODY_MODE":           "patch",
+			"GORELEASER_BIN":              "/tools/goreleaser",
+		},
+		commands: fake,
+		stdout:   ioDiscard(),
+		stderr:   ioDiscard(),
+	}
+
+	if err := a.publishTag("v1.2.3"); err == nil {
+		t.Fatal("expected helm push error")
+	}
+	if !patched {
+		t.Fatal("release body was not patched before helm push failed")
+	}
+}
+
 func TestPublishTagStopsBeforeGoreleaserWhenHelmPackageFails(t *testing.T) {
 	dir := t.TempDir()
 	repo := filepath.Join(dir, "repo")
