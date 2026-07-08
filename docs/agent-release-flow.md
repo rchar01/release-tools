@@ -137,6 +137,20 @@ Reason:
 - chart-aware repositories can opt in before chart-specific config is added
 - `doctor` can report the intended release shape early
 
+### Local Chart Behavior Is Helm-Owned
+
+When `RELEASE_ARTIFACTS` includes `charts`, the CLI validates chart directories
+and invokes Helm for local chart work. `check` runs Helm dependency and lint
+checks. `snapshot` packages charts into `dist/charts` using the release tag as
+the chart and app version source.
+
+Reason:
+
+- Helm remains the chart packaging authority
+- local checks and packages can be validated before remote publishing exists
+- remote chart publishing and signing can be added without changing the command
+  surface
+
 ### Go Preflight Is Optional
 
 The Go CLI requires GoReleaser and only requires a project Go toolchain when
@@ -154,13 +168,18 @@ dev container includes Go 1.26.4 because this repo now builds the Go CLI.
 ### Check Versus Snapshot
 
 `release-tools check` runs `goreleaser check`.
+When charts are enabled, it also runs Helm dependency and lint checks.
+
 `release-tools snapshot` runs `goreleaser release --snapshot --skip=publish --clean`.
+When charts are enabled, it also packages charts into `dist/charts`.
 
 Reason:
 
 - `check` is a fast config validation path
 - `snapshot` validates the actual artifact pipeline
 - neither command requires a publish token
+- chart-enabled snapshot builds need `VERSION` or an exact current tag so Helm
+  chart versions can be derived from the tag
 
 ## What To Watch Out For
 

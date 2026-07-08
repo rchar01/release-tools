@@ -40,6 +40,7 @@ Consumer repositories need:
 
 - the `release-tools` binary installed on `PATH`
 - GoReleaser available on `PATH` or through `GORELEASER_BIN`
+- Helm available on `PATH` when `RELEASE_ARTIFACTS` includes `charts`
 - a repo-local `.release-tools.env`
 - a project-owned `.goreleaser.yaml`
 - `NEWS.md` when release notes are generated from a notes source
@@ -171,6 +172,11 @@ Supported release notes modes:
 
 Supported artifact classes are configured with `RELEASE_ARTIFACTS`. If unset,
 the CLI uses `binaries`; supported values are `binaries` and `charts`.
+
+When `charts` is enabled, `release-tools check` runs Helm dependency and lint
+checks, and `release-tools snapshot` packages charts into `dist/charts`. Chart
+publishing and signing are intentionally left for later artifact orchestration
+phases.
 
 For the full public config contract, token resolution rules, and consumer setup
 guide, see [`docs/usage.md`](docs/usage.md).

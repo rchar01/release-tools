@@ -177,29 +177,29 @@ Goal: Support local Helm chart validation and packaging in `check` and
 
 Tasks:
 
-- [ ] Add strict config support for `RELEASE_HELM_CHART_DIRS`.
-- [ ] Add strict config support for `RELEASE_HELM_VERSION_FROM=tag`.
-- [ ] Add strict config support for `RELEASE_HELM_APP_VERSION_FROM=tag`.
-- [ ] Require `helm` only when charts are enabled.
-- [ ] Validate chart directories exist when charts are enabled.
-- [ ] Validate each chart has a readable `Chart.yaml`.
-- [ ] Derive chart version from the release tag by trimming one leading `v`.
-- [ ] Run `helm dependency update --skip-refresh <chart>` during chart checks if
+- [x] Add strict config support for `RELEASE_HELM_CHART_DIRS`.
+- [x] Add strict config support for `RELEASE_HELM_VERSION_FROM=tag`.
+- [x] Add strict config support for `RELEASE_HELM_APP_VERSION_FROM=tag`.
+- [x] Require `helm` only when charts are enabled.
+- [x] Validate chart directories exist when charts are enabled.
+- [x] Validate each chart has a readable `Chart.yaml`.
+- [x] Derive chart version from the release tag by trimming one leading `v`.
+- [x] Run `helm dependency update --skip-refresh <chart>` during chart checks if
   this behavior proves compatible with expected chart dependency workflows.
-- [ ] Run `helm lint <chart>` during `release-tools check` when charts are
+- [x] Run `helm lint <chart>` during `release-tools check` when charts are
   enabled.
-- [ ] Run `helm package <chart> --version <version> --app-version <version>
+- [x] Run `helm package <chart> --version <version> --app-version <version>
   --destination dist/charts` during `snapshot` when charts are enabled.
-- [ ] Ensure `snapshot` still does not require publish tokens.
-- [ ] Add unit tests using a fake command runner.
-- [ ] Add integration-style tests with stub `helm` and `goreleaser` binaries.
+- [x] Ensure `snapshot` still does not require publish tokens.
+- [x] Add unit tests using a fake command runner.
+- [x] Add integration-style tests with stub `helm` and `goreleaser` binaries.
 
 Validation gate:
 
-- [ ] `go test ./cmd/release-tools`
-- [ ] `scripts/test-errors`
-- [ ] `make verify`
-- [ ] `make container-test`
+- [x] `go test ./cmd/release-tools`
+- [x] `scripts/test-errors`
+- [x] `make verify`
+- [x] `make container-test`
 
 Decision point: Review whether local Helm packaging should be released before
 remote chart publishing is implemented.
@@ -402,6 +402,7 @@ Validation gate:
 | 2026-07-08 | Plan created for artifact orchestration. | User requested a durable implementation plan. |
 | 2026-07-08 | Phase 1 refactor implemented. | Added `internal/config` and injectable `internal/runner`; seam-focused tests passed; verification subagent reported `go test ./...`, `scripts/test-errors`, and `make verify` passed. |
 | 2026-07-08 | Phase 2 artifact config implemented. | Added `RELEASE_ARTIFACTS` parsing, `chartsEnabled`, `doctor` reporting, focused artifact/doctor tests, and `scripts/test-errors` coverage. Verification subagent reported `go test ./...`, `scripts/test-errors`, and `make verify` passed. |
+| 2026-07-08 | Phase 3 local Helm behavior implemented. | Added Helm chart config, local check/package commands, dev-container Helm install, unit tests, `scripts/test-errors`, and stub Helm/GoReleaser integration coverage in `scripts/test`; chart paths are constrained inside the repo including symlink targets; `make verify` and `make container-test` passed. |
 
 ## Decision Log
 

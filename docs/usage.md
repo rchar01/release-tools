@@ -98,6 +98,9 @@ Supported `.release-tools.env` keys:
 - `RELEASE_REPO`
 - `RELEASE_API_URL`
 - `RELEASE_ARTIFACTS`
+- `RELEASE_HELM_CHART_DIRS`
+- `RELEASE_HELM_VERSION_FROM`
+- `RELEASE_HELM_APP_VERSION_FROM`
 - `RELEASE_NOTES_SOURCE`
 - `RELEASE_NOTES_MODE`
 - `RELEASE_BODY_MODE`
@@ -126,9 +129,32 @@ RELEASE_ARTIFACTS=binaries,charts
 
 If unset, `release-tools` keeps the existing binaries-only behavior. Supported
 values are `binaries` and `charts`. The `doctor` command validates and reports
-the configured artifact classes. `RELEASE_ARTIFACTS=charts` currently records
-chart release intent; Helm-aware command behavior is planned for later chart
-configuration work.
+the configured artifact classes.
+
+When charts are enabled, list one or more chart directories relative to the
+repository root:
+
+```sh
+RELEASE_ARTIFACTS=binaries,charts
+RELEASE_HELM_CHART_DIRS=charts/myapp
+RELEASE_HELM_VERSION_FROM=tag
+RELEASE_HELM_APP_VERSION_FROM=tag
+```
+
+Only `tag` is currently supported for Helm chart and app versions. A release tag
+such as `v1.2.3` becomes chart version `1.2.3`.
+
+Chart-enabled commands add local Helm behavior:
+
+- `release-tools doctor` validates `helm`, chart directories, and `Chart.yaml`
+- `release-tools check` runs `helm dependency update --skip-refresh` and
+  `helm lint` for each chart after `goreleaser check`
+- `release-tools snapshot` runs the GoReleaser snapshot and packages charts into
+  `dist/charts`
+
+Chart publishing and signing are not part of this local chart milestone.
+Snapshot chart packaging needs `VERSION` or an exact current tag so the chart
+version can be derived from the release tag.
 
 Required for release commands:
 

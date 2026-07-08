@@ -49,6 +49,9 @@
   - `RELEASE_REPO`
   - `RELEASE_API_URL`
   - `RELEASE_ARTIFACTS`
+  - `RELEASE_HELM_CHART_DIRS`
+  - `RELEASE_HELM_VERSION_FROM`
+  - `RELEASE_HELM_APP_VERSION_FROM`
   - `RELEASE_NOTES_SOURCE`
   - `RELEASE_NOTES_MODE`
   - `RELEASE_BODY_MODE`
@@ -68,6 +71,9 @@
   `github`, and `gitlab`.
 - `RELEASE_ARTIFACTS` defaults to `binaries`; supported values are `binaries`
   and `charts`.
+- `RELEASE_HELM_CHART_DIRS` is required when `RELEASE_ARTIFACTS` includes
+  `charts`.
+- Supported Helm version source values are currently `tag` only.
 
 ## Commands
 - CLI:
@@ -103,8 +109,11 @@
 - Keep the installed `release-tools` binary as the only public command surface.
 - Keep Make targets maintainer-only; consumer repos should call `release-tools` from `PATH`.
 - The CLI fails fast on missing `RELEASE_PROJECT` and `RELEASE_OWNER`; tag publishing also requires `VERSION` or a positional tag.
-- `release-tools check` runs `goreleaser check`.
-- `release-tools snapshot` runs `goreleaser release --snapshot --skip=publish --clean`.
+- `release-tools check` runs `goreleaser check`; when charts are enabled it also
+  runs `helm dependency update --skip-refresh` and `helm lint` for each chart.
+- `release-tools snapshot` runs `goreleaser release --snapshot --skip=publish
+  --clean`; when charts are enabled it also runs `helm package` into
+  `dist/charts`.
 - `publish-tag` publishes from a clean temporary clone of the exact tag.
 - GoReleaser must run from the release repository root.
 - unset `RELEASE_ARTIFACTS` keeps current binaries-only behavior.
@@ -121,8 +130,10 @@
 - token resolution reads `RELEASE_TOKEN`, the native GoReleaser token variable
   for `RELEASE_FORGE`, or `RELEASE_TOKEN_FILE` in that order.
 - GoReleaser resolution checks `GORELEASER_BIN`, then common install locations.
+- Helm is required only when `RELEASE_ARTIFACTS` includes `charts`.
 - Go baseline is Go 1.26 with toolchain `go1.26.4`.
-- Dev-container verification uses Podman through `scripts/in-container`.
+- Dev-container verification uses Podman through `scripts/in-container`; the dev
+  container is the source of required development tools, including Helm.
 
 ## Editing Notes
 - When changing documented behavior, update the matching docs in `docs/usage.md` and `docs/agent-release-flow.md`.

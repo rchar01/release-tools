@@ -22,19 +22,22 @@ import (
 )
 
 var allowedConfigKeys = map[string]bool{
-	"RELEASE_FORGE":        true,
-	"RELEASE_PROJECT":      true,
-	"RELEASE_OWNER":        true,
-	"RELEASE_REPO":         true,
-	"RELEASE_API_URL":      true,
-	"RELEASE_ARTIFACTS":    true,
-	"RELEASE_NOTES_SOURCE": true,
-	"RELEASE_NOTES_MODE":   true,
-	"RELEASE_BODY_MODE":    true,
-	"GORELEASER_CONFIG":    true,
-	"GORELEASER_BIN":       true,
-	"RELEASE_REQUIRE_GO":   true,
-	"RELEASE_TOKEN_FILE":   true,
+	"RELEASE_FORGE":                 true,
+	"RELEASE_PROJECT":               true,
+	"RELEASE_OWNER":                 true,
+	"RELEASE_REPO":                  true,
+	"RELEASE_API_URL":               true,
+	"RELEASE_ARTIFACTS":             true,
+	"RELEASE_HELM_CHART_DIRS":       true,
+	"RELEASE_HELM_VERSION_FROM":     true,
+	"RELEASE_HELM_APP_VERSION_FROM": true,
+	"RELEASE_NOTES_SOURCE":          true,
+	"RELEASE_NOTES_MODE":            true,
+	"RELEASE_BODY_MODE":             true,
+	"GORELEASER_CONFIG":             true,
+	"GORELEASER_BIN":                true,
+	"RELEASE_REQUIRE_GO":            true,
+	"RELEASE_TOKEN_FILE":            true,
 }
 
 type forgeKind string
@@ -50,6 +53,8 @@ const (
 
 	artifactBinaries = "binaries"
 	artifactCharts   = "charts"
+
+	helmVersionFromTag = "tag"
 )
 
 type app struct {
@@ -283,7 +288,7 @@ func newCheckCommand(factory appFactory) *cobra.Command {
 			if err := a.requireReleaseVars(); err != nil {
 				return err
 			}
-			return a.runGoreleaser("check")
+			return a.check()
 		},
 	}
 }
@@ -302,7 +307,7 @@ func newSnapshotCommand(factory appFactory) *cobra.Command {
 			if err := a.requireReleaseVars(); err != nil {
 				return err
 			}
-			return a.runGoreleaser("release", "--snapshot", "--skip=publish", "--clean")
+			return a.snapshot()
 		},
 	}
 }
@@ -415,6 +420,36 @@ func (a *app) requireReleaseVars() error {
 	return nil
 }
 
+func (a *app) check() error {
+	if err := a.validateChartConfig(); err != nil {
+		return err
+	}
+	if err := a.runGoreleaser("check"); err != nil {
+		return err
+	}
+	return a.runHelmChecks()
+}
+
+func (a *app) snapshot() error {
+	if err := a.validateChartConfig(); err != nil {
+		return err
+	}
+	chartVersion := ""
+	if enabled, err := a.chartsEnabled(); err != nil {
+		return err
+	} else if enabled {
+		version, err := a.helmVersion()
+		if err != nil {
+			return err
+		}
+		chartVersion = version
+	}
+	if err := a.runGoreleaser("release", "--snapshot", "--skip=publish", "--clean"); err != nil {
+		return err
+	}
+	return a.runHelmPackages(chartVersion)
+}
+
 func (a *app) doctor() error {
 	if err := a.requireReleaseVars(); err != nil {
 		return err
@@ -425,6 +460,9 @@ func (a *app) doctor() error {
 	bodyMode := a.releaseBodyMode()
 	artifacts, err := a.releaseArtifacts()
 	if err != nil {
+		return err
+	}
+	if err := a.validateChartConfig(); err != nil {
 		return err
 	}
 	if _, err := a.releaseForge(); err != nil {
@@ -478,6 +516,17 @@ func (a *app) doctor() error {
 	a.log("GoReleaser binary: %s", goreleaserBin)
 	a.log("GoReleaser version: %s", goreleaserVersion)
 	a.log("Artifacts: %s", strings.Join(artifacts, ", "))
+	if enabled, err := a.chartsEnabled(); err != nil {
+		return err
+	} else if enabled {
+		dirs, err := a.helmChartDirs()
+		if err != nil {
+			return err
+		}
+		a.log("Helm chart dirs: %s", strings.Join(dirs, ", "))
+		a.log("Helm version source: %s", a.helmVersionFrom())
+		a.log("Helm app version source: %s", a.helmAppVersionFrom())
+	}
 	a.log("Release notes mode: %s", notesMode)
 	a.log("Release body mode: %s", bodyMode)
 	a.log("release-tools configuration looks valid")
@@ -514,8 +563,16 @@ func (a *app) ensureTools() error {
 			return errors.New("go is required")
 		}
 	}
-	_, err := a.resolveGoreleaserBin()
-	return err
+	if _, err := a.resolveGoreleaserBin(); err != nil {
+		return err
+	}
+	if enabled, err := a.chartsEnabled(); err != nil {
+		return err
+	} else if enabled {
+		_, err := a.resolveHelmBin()
+		return err
+	}
+	return nil
 }
 
 func (a *app) resolveGoreleaserBin() (string, error) {
@@ -548,6 +605,13 @@ func (a *app) resolveGoreleaserBin() (string, error) {
 	return "", errors.New("goreleaser not found. Install it and ensure it is available in PATH or GORELEASER_BIN")
 }
 
+func (a *app) resolveHelmBin() (string, error) {
+	if bin, err := a.commandRunner().LookPath("helm"); err == nil {
+		return bin, nil
+	}
+	return "", errors.New("helm not found. Install it and ensure it is available in PATH when RELEASE_ARTIFACTS includes charts")
+}
+
 func (a *app) runGoreleaser(args ...string) error {
 	goreleaserBin, err := a.resolveGoreleaserBin()
 	if err != nil {
@@ -558,6 +622,70 @@ func (a *app) runGoreleaser(args ...string) error {
 	if token, ok := a.resolveOptionalToken(); ok {
 		cmd.Env = append(cmd.Env, a.goreleaserTokenEnv()+"="+token)
 	}
+	return a.commandRunner().Run(cmd)
+}
+
+func (a *app) runHelmChecks() error {
+	if enabled, err := a.chartsEnabled(); err != nil {
+		return err
+	} else if !enabled {
+		return nil
+	}
+	helmBin, err := a.resolveHelmBin()
+	if err != nil {
+		return err
+	}
+	dirs, err := a.helmChartDirs()
+	if err != nil {
+		return err
+	}
+	for _, dir := range dirs {
+		if err := a.runHelm(helmBin, "dependency", "update", "--skip-refresh", dir); err != nil {
+			return err
+		}
+		if err := a.runHelm(helmBin, "lint", dir); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a *app) runHelmPackages(version string) error {
+	if enabled, err := a.chartsEnabled(); err != nil {
+		return err
+	} else if !enabled {
+		return nil
+	}
+	if version == "" {
+		resolved, err := a.helmVersion()
+		if err != nil {
+			return err
+		}
+		version = resolved
+	}
+	appVersion := version
+	helmBin, err := a.resolveHelmBin()
+	if err != nil {
+		return err
+	}
+	dirs, err := a.helmChartDirs()
+	if err != nil {
+		return err
+	}
+	destination := filepath.Join("dist", "charts")
+	if err := os.MkdirAll(filepath.Join(a.repoRoot, destination), 0o755); err != nil {
+		return err
+	}
+	for _, dir := range dirs {
+		if err := a.runHelm(helmBin, "package", dir, "--version", version, "--app-version", appVersion, "--destination", destination); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a *app) runHelm(helmBin string, args ...string) error {
+	cmd := runner.Command{Dir: a.repoRoot, Name: helmBin, Args: args, Stdout: a.stdout, Stderr: a.stderr}
 	return a.commandRunner().Run(cmd)
 }
 
@@ -1161,6 +1289,143 @@ func (a *app) chartsEnabled() (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+func (a *app) validateChartConfig() error {
+	if _, err := a.helmVersionFromChecked(); err != nil {
+		return err
+	}
+	if _, err := a.helmAppVersionFromChecked(); err != nil {
+		return err
+	}
+	enabled, err := a.chartsEnabled()
+	if err != nil {
+		return err
+	}
+	if !enabled {
+		return nil
+	}
+	dirs, err := a.helmChartDirs()
+	if err != nil {
+		return err
+	}
+	repoRealPath, err := filepath.EvalSymlinks(a.repoRoot)
+	if err != nil {
+		return err
+	}
+	for _, dir := range dirs {
+		chartDir := filepath.Join(a.repoRoot, dir)
+		info, err := os.Stat(chartDir)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("Helm chart dir not found: %s", chartDir)
+			}
+			return err
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("Helm chart dir is not a directory: %s", chartDir)
+		}
+		chartRealPath, err := filepath.EvalSymlinks(chartDir)
+		if err != nil {
+			return err
+		}
+		inside, err := pathInside(repoRealPath, chartRealPath)
+		if err != nil {
+			return err
+		}
+		if !inside {
+			return fmt.Errorf("Helm chart dir must stay inside repository: %s", chartDir)
+		}
+		chartFile := filepath.Join(chartDir, "Chart.yaml")
+		if _, err := os.ReadFile(chartFile); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("Helm Chart.yaml not found: %s", chartFile)
+			}
+			return fmt.Errorf("Helm Chart.yaml is not readable: %s", chartFile)
+		}
+	}
+	return nil
+}
+
+func pathInside(base, target string) (bool, error) {
+	rel, err := filepath.Rel(base, target)
+	if err != nil {
+		return false, err
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)), nil
+}
+
+func (a *app) helmChartDirs() ([]string, error) {
+	enabled, err := a.chartsEnabled()
+	if err != nil {
+		return nil, err
+	}
+	if !enabled {
+		return nil, nil
+	}
+	raw, ok := a.env["RELEASE_HELM_CHART_DIRS"]
+	if !ok || strings.TrimSpace(raw) == "" {
+		return nil, errors.New("RELEASE_HELM_CHART_DIRS is required when RELEASE_ARTIFACTS includes charts")
+	}
+	seen := map[string]bool{}
+	dirs := []string{}
+	for _, entry := range strings.Split(raw, ",") {
+		dir := strings.TrimSpace(entry)
+		if dir == "" {
+			return nil, errors.New("RELEASE_HELM_CHART_DIRS contains an empty entry")
+		}
+		if filepath.IsAbs(dir) {
+			return nil, fmt.Errorf("RELEASE_HELM_CHART_DIRS must be relative paths inside the repository: %s", dir)
+		}
+		dir = filepath.Clean(dir)
+		if dir == ".." || strings.HasPrefix(dir, ".."+string(filepath.Separator)) {
+			return nil, fmt.Errorf("RELEASE_HELM_CHART_DIRS must be relative paths inside the repository: %s", dir)
+		}
+		if !seen[dir] {
+			dirs = append(dirs, dir)
+			seen[dir] = true
+		}
+	}
+	return dirs, nil
+}
+
+func (a *app) helmVersionFrom() string {
+	return envValue(a.env, "RELEASE_HELM_VERSION_FROM", helmVersionFromTag)
+}
+
+func (a *app) helmAppVersionFrom() string {
+	return envValue(a.env, "RELEASE_HELM_APP_VERSION_FROM", helmVersionFromTag)
+}
+
+func (a *app) helmVersionFromChecked() (string, error) {
+	value := a.helmVersionFrom()
+	if value != helmVersionFromTag {
+		return "", fmt.Errorf("unsupported RELEASE_HELM_VERSION_FROM: %s", value)
+	}
+	return value, nil
+}
+
+func (a *app) helmAppVersionFromChecked() (string, error) {
+	value := a.helmAppVersionFrom()
+	if value != helmVersionFromTag {
+		return "", fmt.Errorf("unsupported RELEASE_HELM_APP_VERSION_FROM: %s", value)
+	}
+	return value, nil
+}
+
+func (a *app) helmVersion() (string, error) {
+	if _, err := a.helmVersionFromChecked(); err != nil {
+		return "", err
+	}
+	tag, err := a.resolveTag("")
+	if err != nil {
+		return "", err
+	}
+	version := strings.TrimPrefix(tag, "v")
+	if version == "" {
+		return "", fmt.Errorf("release tag does not contain a Helm version: %s", tag)
+	}
+	return version, nil
 }
 
 func (a *app) log(format string, args ...any) {

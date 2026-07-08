@@ -279,16 +279,18 @@ func TestReleaseArtifactsRejectInvalidValues(t *testing.T) {
 func TestDoctorReportsArtifacts(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, ".goreleaser.yaml"), "version: 2\n")
+	writeChart(t, filepath.Join(dir, "charts", "demo"), "demo")
 	var stdout bytes.Buffer
 	a := &app{
 		repoRoot: dir,
 		env: map[string]string{
-			"RELEASE_PROJECT":    "demo",
-			"RELEASE_OWNER":      "owner",
-			"RELEASE_ARTIFACTS":  "binaries, charts",
-			"RELEASE_NOTES_MODE": "none",
-			"RELEASE_BODY_MODE":  "none",
-			"GORELEASER_BIN":     "/tools/goreleaser",
+			"RELEASE_PROJECT":         "demo",
+			"RELEASE_OWNER":           "owner",
+			"RELEASE_ARTIFACTS":       "binaries, charts",
+			"RELEASE_HELM_CHART_DIRS": "charts/demo",
+			"RELEASE_NOTES_MODE":      "none",
+			"RELEASE_BODY_MODE":       "none",
+			"GORELEASER_BIN":          "/tools/goreleaser",
 		},
 		commands: &fakeCommandRunner{combinedOutput: []byte("GitVersion: v2.16.0\n")},
 		stdout:   &stdout,
@@ -299,6 +301,195 @@ func TestDoctorReportsArtifacts(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "[INFO] Artifacts: binaries, charts\n") {
 		t.Fatalf("doctor output = %q, want artifact line", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "[INFO] Helm chart dirs: charts/demo\n") {
+		t.Fatalf("doctor output = %q, want chart dir line", stdout.String())
+	}
+}
+
+func TestCheckRunsHelmForCharts(t *testing.T) {
+	dir := t.TempDir()
+	writeChart(t, filepath.Join(dir, "charts", "demo"), "demo")
+	fake := &fakeCommandRunner{}
+	a := &app{
+		repoRoot: dir,
+		env: map[string]string{
+			"RELEASE_ARTIFACTS":       "binaries,charts",
+			"RELEASE_HELM_CHART_DIRS": "charts/demo",
+			"GORELEASER_BIN":          "/tools/goreleaser",
+		},
+		commands: fake,
+		stdout:   ioDiscard(),
+		stderr:   ioDiscard(),
+	}
+
+	if err := a.check(); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"/tools/goreleaser --config .goreleaser.yaml check",
+		"/fake/helm dependency update --skip-refresh charts/demo",
+		"/fake/helm lint charts/demo",
+	}
+	if got := commandStrings(fake.runCommands); strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("commands = %#v, want %#v", got, want)
+	}
+}
+
+func TestSnapshotPackagesHelmCharts(t *testing.T) {
+	dir := t.TempDir()
+	writeChart(t, filepath.Join(dir, "charts", "demo"), "demo")
+	fake := &fakeCommandRunner{output: []byte("v1.2.3\n")}
+	a := &app{
+		repoRoot: dir,
+		env: map[string]string{
+			"RELEASE_ARTIFACTS":       "charts",
+			"RELEASE_HELM_CHART_DIRS": "charts/demo",
+			"GORELEASER_BIN":          "/tools/goreleaser",
+		},
+		commands: fake,
+		stdout:   ioDiscard(),
+		stderr:   ioDiscard(),
+	}
+
+	if err := a.snapshot(); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"/tools/goreleaser --config .goreleaser.yaml release --snapshot --skip=publish --clean",
+		"/fake/helm package charts/demo --version 1.2.3 --app-version 1.2.3 --destination dist/charts",
+	}
+	if got := commandStrings(fake.runCommands); strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("commands = %#v, want %#v", got, want)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "dist", "charts")); err != nil {
+		t.Fatalf("dist/charts was not created: %v", err)
+	}
+}
+
+func TestCheckRunsHelmForMultipleCharts(t *testing.T) {
+	dir := t.TempDir()
+	writeChart(t, filepath.Join(dir, "charts", "api"), "api")
+	writeChart(t, filepath.Join(dir, "charts", "worker"), "worker")
+	fake := &fakeCommandRunner{}
+	a := &app{
+		repoRoot: dir,
+		env: map[string]string{
+			"RELEASE_ARTIFACTS":       "charts",
+			"RELEASE_HELM_CHART_DIRS": "charts/api, charts/worker",
+			"GORELEASER_BIN":          "/tools/goreleaser",
+		},
+		commands: fake,
+		stdout:   ioDiscard(),
+		stderr:   ioDiscard(),
+	}
+
+	if err := a.check(); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"/tools/goreleaser --config .goreleaser.yaml check",
+		"/fake/helm dependency update --skip-refresh charts/api",
+		"/fake/helm lint charts/api",
+		"/fake/helm dependency update --skip-refresh charts/worker",
+		"/fake/helm lint charts/worker",
+	}
+	if got := commandStrings(fake.runCommands); strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("commands = %#v, want %#v", got, want)
+	}
+}
+
+func TestValidateChartConfigRequiresChartDirs(t *testing.T) {
+	a := &app{env: map[string]string{"RELEASE_ARTIFACTS": "charts"}}
+	if err := a.validateChartConfig(); err == nil {
+		t.Fatal("expected missing chart dirs error")
+	}
+}
+
+func TestValidateChartConfigRejectsChartDirsOutsideRepo(t *testing.T) {
+	for _, dir := range []string{"/charts/demo", "../charts/demo"} {
+		t.Run(dir, func(t *testing.T) {
+			a := &app{env: map[string]string{
+				"RELEASE_ARTIFACTS":       "charts",
+				"RELEASE_HELM_CHART_DIRS": dir,
+			}}
+			if err := a.validateChartConfig(); err == nil {
+				t.Fatal("expected chart dir path error")
+			}
+		})
+	}
+}
+
+func TestValidateChartConfigRejectsSymlinkOutsideRepo(t *testing.T) {
+	dir := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside")
+	writeChart(t, outside, "outside")
+	if err := os.MkdirAll(filepath.Join(dir, "charts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "charts", "linked")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	a := &app{
+		repoRoot: dir,
+		env: map[string]string{
+			"RELEASE_ARTIFACTS":       "charts",
+			"RELEASE_HELM_CHART_DIRS": "charts/linked",
+		},
+	}
+	if err := a.validateChartConfig(); err == nil {
+		t.Fatal("expected symlink escape error")
+	}
+}
+
+func TestValidateChartConfigAllowsSymlinkedRepoRoot(t *testing.T) {
+	realRepo := filepath.Join(t.TempDir(), "repo")
+	writeChart(t, filepath.Join(realRepo, "charts", "demo"), "demo")
+	repoLink := filepath.Join(t.TempDir(), "repo-link")
+	if err := os.Symlink(realRepo, repoLink); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	a := &app{
+		repoRoot: repoLink,
+		env: map[string]string{
+			"RELEASE_ARTIFACTS":       "charts",
+			"RELEASE_HELM_CHART_DIRS": "charts/demo",
+		},
+	}
+	if err := a.validateChartConfig(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestValidateChartConfigReadsChartYAML(t *testing.T) {
+	dir := t.TempDir()
+	chartDir := filepath.Join(dir, "charts", "demo")
+	if err := os.MkdirAll(filepath.Join(chartDir, "Chart.yaml"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{
+		repoRoot: dir,
+		env: map[string]string{
+			"RELEASE_ARTIFACTS":       "charts",
+			"RELEASE_HELM_CHART_DIRS": "charts/demo",
+		},
+	}
+	if err := a.validateChartConfig(); err == nil {
+		t.Fatal("expected unreadable Chart.yaml error")
+	}
+}
+
+func TestValidateChartConfigRejectsUnsupportedVersionSources(t *testing.T) {
+	for key, value := range map[string]string{
+		"RELEASE_HELM_VERSION_FROM":     "chart",
+		"RELEASE_HELM_APP_VERSION_FROM": "chart",
+	} {
+		t.Run(key, func(t *testing.T) {
+			a := &app{env: map[string]string{key: value}}
+			if err := a.validateChartConfig(); err == nil {
+				t.Fatal("expected unsupported version source error")
+			}
+		})
 	}
 }
 
@@ -741,6 +932,22 @@ func writeFile(t *testing.T, path, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func writeChart(t *testing.T, dir, name string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(dir, "Chart.yaml"), "apiVersion: v2\nname: "+name+"\nversion: 0.0.0\n")
+}
+
+func commandStrings(commands []runner.Command) []string {
+	out := make([]string, 0, len(commands))
+	for _, command := range commands {
+		out = append(out, strings.TrimSpace(command.Name+" "+strings.Join(command.Args, " ")))
+	}
+	return out
 }
 
 func runGit(t *testing.T, dir string, args ...string) {

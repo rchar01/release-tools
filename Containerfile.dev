@@ -2,6 +2,7 @@ FROM docker.io/library/debian:bookworm-slim
 
 ARG GORELEASER_VERSION=2.16.0
 ARG GO_VERSION=1.26.4
+ARG HELM_VERSION=3.15.4
 ARG TARGETARCH
 
 RUN apt-get update \
@@ -37,5 +38,15 @@ RUN set -eu; \
     esac; \
     curl -fsSL "https://github.com/goreleaser/goreleaser/releases/download/v${GORELEASER_VERSION}/goreleaser_Linux_${goreleaser_arch}.tar.gz" \
       | tar -xz -C /usr/local/bin goreleaser
+
+RUN set -eu; \
+    case "${TARGETARCH:-amd64}" in \
+      amd64|arm64) helm_arch="${TARGETARCH:-amd64}" ;; \
+      *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://get.helm.sh/helm-v${HELM_VERSION}-linux-${helm_arch}.tar.gz" \
+      | tar -xz -C /tmp "linux-${helm_arch}/helm"; \
+    mv "/tmp/linux-${helm_arch}/helm" /usr/local/bin/helm; \
+    rm -rf "/tmp/linux-${helm_arch}"
 
 WORKDIR /workspace

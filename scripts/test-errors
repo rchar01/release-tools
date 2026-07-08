@@ -37,7 +37,7 @@ expect_error() {
 }
 
 rm -rf "$TMP_DIR"
-mkdir -p "$TMP_DIR/no-config" "$TMP_DIR/no-tag" "$TMP_DIR/missing-goreleaser" "$TMP_DIR/missing-news" "$TMP_DIR/invalid-forge" "$TMP_DIR/invalid-artifacts" "$TMP_DIR/empty-artifacts" "$TMP_DIR/empty-artifact-entry"
+mkdir -p "$TMP_DIR/no-config" "$TMP_DIR/no-tag" "$TMP_DIR/missing-goreleaser" "$TMP_DIR/missing-news" "$TMP_DIR/invalid-forge" "$TMP_DIR/invalid-artifacts" "$TMP_DIR/empty-artifacts" "$TMP_DIR/empty-artifact-entry" "$TMP_DIR/missing-chart-dirs" "$TMP_DIR/missing-chart-yaml" "$TMP_DIR/invalid-helm-version-from" "$TMP_DIR/symlink-chart-dir" "$TMP_DIR/outside-chart"
 
 cat >"$TMP_DIR/no-tag/.release-tools.env" <<'EOF'
 RELEASE_PROJECT=demo
@@ -86,6 +86,42 @@ RELEASE_OWNER=owner
 RELEASE_ARTIFACTS=binaries,,charts
 EOF
 
+cat >"$TMP_DIR/missing-chart-dirs/.release-tools.env" <<'EOF'
+RELEASE_PROJECT=demo
+RELEASE_OWNER=owner
+RELEASE_ARTIFACTS=charts
+EOF
+
+cat >"$TMP_DIR/missing-chart-yaml/.release-tools.env" <<'EOF'
+RELEASE_PROJECT=demo
+RELEASE_OWNER=owner
+RELEASE_ARTIFACTS=charts
+RELEASE_HELM_CHART_DIRS=charts/demo
+EOF
+mkdir -p "$TMP_DIR/missing-chart-yaml/charts/demo"
+
+cat >"$TMP_DIR/invalid-helm-version-from/.release-tools.env" <<'EOF'
+RELEASE_PROJECT=demo
+RELEASE_OWNER=owner
+RELEASE_ARTIFACTS=charts
+RELEASE_HELM_CHART_DIRS=charts/demo
+RELEASE_HELM_VERSION_FROM=chart
+EOF
+
+cat >"$TMP_DIR/symlink-chart-dir/.release-tools.env" <<'EOF'
+RELEASE_PROJECT=demo
+RELEASE_OWNER=owner
+RELEASE_ARTIFACTS=charts
+RELEASE_HELM_CHART_DIRS=charts/linked
+EOF
+mkdir -p "$TMP_DIR/symlink-chart-dir/charts" "$TMP_DIR/outside-chart"
+cat >"$TMP_DIR/outside-chart/Chart.yaml" <<'EOF'
+apiVersion: v2
+name: outside
+version: 0.0.0
+EOF
+ln -s "$TMP_DIR/outside-chart" "$TMP_DIR/symlink-chart-dir/charts/linked"
+
 expect_error '[ERROR] RELEASE_PROJECT is required' \
 	env -u RELEASE_PROJECT -u RELEASE_OWNER -u RELEASE_REPO RELEASE_REPO_ROOT="$TMP_DIR/no-config" "$RELEASE_TOOLS_BIN" check
 
@@ -112,6 +148,18 @@ expect_error '[ERROR] RELEASE_ARTIFACTS is empty' \
 
 expect_error '[ERROR] RELEASE_ARTIFACTS contains an empty entry' \
 	env RELEASE_REPO_ROOT="$TMP_DIR/empty-artifact-entry" GORELEASER_BIN=/bin/true "$RELEASE_TOOLS_BIN" doctor
+
+expect_error '[ERROR] RELEASE_HELM_CHART_DIRS is required when RELEASE_ARTIFACTS includes charts' \
+	env RELEASE_REPO_ROOT="$TMP_DIR/missing-chart-dirs" GORELEASER_BIN=/bin/true "$RELEASE_TOOLS_BIN" doctor
+
+expect_error '[ERROR] Helm Chart.yaml not found:' \
+	env RELEASE_REPO_ROOT="$TMP_DIR/missing-chart-yaml" GORELEASER_BIN=/bin/true "$RELEASE_TOOLS_BIN" doctor
+
+expect_error '[ERROR] unsupported RELEASE_HELM_VERSION_FROM: chart' \
+	env RELEASE_REPO_ROOT="$TMP_DIR/invalid-helm-version-from" GORELEASER_BIN=/bin/true "$RELEASE_TOOLS_BIN" doctor
+
+expect_error '[ERROR] Helm chart dir must stay inside repository:' \
+	env RELEASE_REPO_ROOT="$TMP_DIR/symlink-chart-dir" GORELEASER_BIN=/bin/true "$RELEASE_TOOLS_BIN" doctor
 
 expect_error '[ERROR] VERSION is required when the current commit is not an exact tag' \
 	env -u VERSION RELEASE_REPO_ROOT="$TMP_DIR/no-tag" "$RELEASE_TOOLS_BIN" notes

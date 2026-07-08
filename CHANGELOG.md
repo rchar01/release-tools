@@ -11,6 +11,9 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - added `RELEASE_ARTIFACTS` config parsing and `doctor` reporting for artifact
   classes, defaulting to `binaries` and accepting `binaries` and `charts`
+- added local Helm chart validation for chart-enabled repositories, including
+  chart directory checks, `helm dependency update --skip-refresh`, `helm lint`,
+  and `helm package` into `dist/charts` during snapshots
 
 ## [3.3.0] - 2026-07-02
 
