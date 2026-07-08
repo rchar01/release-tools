@@ -337,7 +337,7 @@ Validation gate:
 - [x] Unit tests for signing config validation.
 - [x] Stubbed signing command tests.
 - [ ] Manual end-to-end signing and verification notes for the chosen backend.
-- [ ] `make verify`
+- [x] `make verify`
 - [ ] `make container-test`
 
 Decision point: Decide whether OCI Helm signing is stable enough for public docs
@@ -379,17 +379,17 @@ support.
 
 Tasks:
 
-- [ ] Update `README.md` with only implemented artifact orchestration behavior.
-- [ ] Update `docs/usage.md` config contract for each newly supported key.
-- [ ] Update `docs/agent-release-flow.md` with sequencing and safety invariants.
-- [ ] Update `AGENTS.md` public contract and verified behavior.
-- [ ] Add or update examples only for stable workflows.
-- [ ] Avoid documenting Make as a consumer release frontend.
+- [x] Update `README.md` with only implemented artifact orchestration behavior.
+- [x] Update `docs/usage.md` config contract for each newly supported key.
+- [x] Update `docs/agent-release-flow.md` with sequencing and safety invariants.
+- [x] Update `AGENTS.md` public contract and verified behavior.
+- [x] Add or update examples only for stable workflows.
+- [x] Avoid documenting Make as a consumer release frontend.
 
 Validation gate:
 
-- [ ] Docs match implemented config allowlist.
-- [ ] Examples use only released or release-prep behavior.
+- [x] Docs match implemented config allowlist.
+- [x] Examples use only released or release-prep behavior.
 - [ ] `make verify`
 
 ## Risks
@@ -431,6 +431,8 @@ Validation gate:
 | 2026-07-08 | Live Codeberg chart publishing verified. | `make codeberg-smoke-test` passed with package-registry credentials; the smoke waits for Codeberg Helm `index.yaml` to contain the uploaded chart name and exact release version. |
 | 2026-07-08 | Phase 6 container image preflights implemented. | Added top-level GoReleaser container config detection for `dockers`, `dockers_v2`, `docker_manifests`, and `docker_signs`; `doctor` and `tools-check` now require the matching Docker, Podman, Cosign, or configured static signing command only when those keys are present. |
 | 2026-07-08 | Phase 8 chart release manifest implemented. | Chart-enabled snapshot, publish, and publish-tag flows now write `dist/release-manifest.json` with tag, version, chart package paths, SHA-256 values, OCI refs, and classic Helm package endpoints; publish commands copy packages back into `dist/charts`, and publish-tag copies chart packages plus the manifest back from the temporary tag clone. |
+| 2026-07-08 | Phase 7 Helm provenance signing implemented. | Chart-enabled flows can run `helm package --sign` with explicit GPG key/keyring config, copy generated `.prov` files to `dist/charts`, and record provenance paths plus SHA-256 values in `dist/release-manifest.json`. |
+| 2026-07-08 | Phase 9 docs and examples pass completed. | Added a stable chart release env example and doc contract tests that compare the canonical usage key list and env examples against the implemented config allowlist. |
 
 ## Decision Log
 

@@ -41,6 +41,8 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - added Helm chart provenance signing with `RELEASE_HELM_PROVENANCE`,
   `RELEASE_HELM_GPG_KEY`, and `RELEASE_HELM_GPG_KEYRING`; generated `.prov`
   files are copied back to `dist/charts` and recorded in the release manifest
+- added a stable chart release env example and tests that keep documented config
+  keys aligned with the CLI allowlist
 
 ### Fixed
 

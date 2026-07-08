@@ -224,7 +224,12 @@ guide, see [`docs/usage.md`](docs/usage.md).
 Ready-to-copy consumer starting points:
 
 - [`examples/.release-tools.env`](examples/.release-tools.env)
+- [`examples/chart-release.env`](examples/chart-release.env)
 - [`examples/forgejo-release.yml`](examples/forgejo-release.yml)
+
+Use `examples/chart-release.env` by copying it into the consumer repository as
+`.release-tools.env`, or set `RELEASE_CONFIG_FILE` explicitly when using another
+file name.
 
 Documentation:
 

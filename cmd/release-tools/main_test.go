@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -66,6 +67,34 @@ func TestLoadConfigFileRejectsClassicPlaintextToken(t *testing.T) {
 	_, err := newApp([]string{"RELEASE_REPO_ROOT=" + dir}, ioDiscard(), ioDiscard())
 	if err == nil {
 		t.Fatal("expected unsupported key error")
+	}
+}
+
+func TestUsageSupportedConfigKeysMatchAllowlist(t *testing.T) {
+	content, err := os.ReadFile(filepath.Join("..", "..", "docs", "usage.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := markdownBulletCodeValues(string(content), "Supported `.release-tools.env` keys:", "Supported environment-only variables:")
+	want := sortedAllowedConfigKeys()
+	if strings.Join(keys, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("usage config keys = %#v, want %#v", keys, want)
+	}
+}
+
+func TestExampleEnvFilesUseSupportedConfigKeys(t *testing.T) {
+	for _, file := range []string{".release-tools.env", "chart-release.env"} {
+		t.Run(file, func(t *testing.T) {
+			content, err := os.ReadFile(filepath.Join("..", "..", "examples", file))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, key := range envExampleKeys(string(content)) {
+				if !allowedConfigKeys[key] {
+					t.Fatalf("%s uses unsupported config key %s", file, key)
+				}
+			}
+		})
 	}
 }
 
@@ -2566,4 +2595,58 @@ func envContains(env []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func sortedAllowedConfigKeys() []string {
+	keys := make([]string, 0, len(allowedConfigKeys))
+	for key := range allowedConfigKeys {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func markdownBulletCodeValues(content, start, end string) []string {
+	inSection := false
+	keys := []string{}
+	for _, raw := range strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n") {
+		line := strings.TrimSpace(raw)
+		if line == start {
+			inSection = true
+			continue
+		}
+		if inSection && line == end {
+			break
+		}
+		if !inSection || !strings.HasPrefix(line, "- `") {
+			continue
+		}
+		value, _, ok := strings.Cut(strings.TrimPrefix(line, "- `"), "`")
+		if ok {
+			keys = append(keys, value)
+		}
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func envExampleKeys(content string) []string {
+	seen := map[string]bool{}
+	keys := []string{}
+	for _, raw := range strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n") {
+		line := strings.TrimSpace(raw)
+		line = strings.TrimSpace(strings.TrimPrefix(line, "#"))
+		if line == "" || !strings.Contains(line, "=") {
+			continue
+		}
+		key, _, _ := strings.Cut(line, "=")
+		key = strings.TrimSpace(key)
+		if key == "" || seen[key] {
+			continue
+		}
+		keys = append(keys, key)
+		seen[key] = true
+	}
+	sort.Strings(keys)
+	return keys
 }

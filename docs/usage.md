@@ -13,7 +13,12 @@ The goal is:
 Ready-to-copy starting points are included in this repository:
 
 - `examples/.release-tools.env`
+- `examples/chart-release.env`
 - `examples/forgejo-release.yml`
+
+Use `examples/chart-release.env` by copying it into the consuming repository as
+`.release-tools.env`, or set `RELEASE_CONFIG_FILE` explicitly when using another
+file name.
 
 ## Required Project Files
 
@@ -108,6 +113,9 @@ Supported `.release-tools.env` keys:
 - `RELEASE_HELM_CLASSIC_URL`
 - `RELEASE_HELM_CLASSIC_USERNAME`
 - `RELEASE_HELM_CLASSIC_TOKEN_FILE`
+- `RELEASE_HELM_PROVENANCE`
+- `RELEASE_HELM_GPG_KEY`
+- `RELEASE_HELM_GPG_KEYRING`
 - `RELEASE_NOTES_SOURCE`
 - `RELEASE_NOTES_MODE`
 - `RELEASE_BODY_MODE`
