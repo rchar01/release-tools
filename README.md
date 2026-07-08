@@ -184,6 +184,10 @@ login` with a temporary Helm registry config before pushing. Without those auth
 settings, Helm must already be authenticated. Chart signing is left for a later
 artifact orchestration phase.
 
+Set `RELEASE_HELM_OCI_PLAIN_HTTP=1` only for disposable or otherwise explicitly
+trusted insecure OCI registries. It appends Helm's `--plain-http` flag to OCI
+registry login and chart pushes.
+
 For Forgejo/Gitea classic Helm package registries, set
 `RELEASE_HELM_CLASSIC_URL` to the Helm package base URL, such as
 `https://forge.example/api/packages/myowner/helm`. Do not include credentials,
@@ -219,6 +223,7 @@ Common maintainer commands:
 ```bash
 make verify
 make container-test
+make helm-registry-test
 make build
 make check
 make snapshot
@@ -237,6 +242,13 @@ Run the same checks inside the dev container:
 
 ```bash
 make container-test
+```
+
+Run Podman-backed Helm registry smoke tests against local Zot and ChartMuseum
+containers:
+
+```bash
+make helm-registry-test
 ```
 
 For focused CLI error-message checks, use:

@@ -547,6 +547,82 @@ func TestPublishLogsIntoHelmOCIWithTemporaryRegistryConfig(t *testing.T) {
 	}
 }
 
+func TestPublishPushesHelmChartsWithPlainHTTP(t *testing.T) {
+	dir := t.TempDir()
+	writeChart(t, filepath.Join(dir, "charts", "demo"), "demo")
+	writeFile(t, filepath.Join(dir, "NEWS.md"), "# News\n\n## v1.2.3 - 2026-07-02\n\n- release\n")
+	fake := &fakeCommandRunner{}
+	a := &app{
+		repoRoot: dir,
+		tmpDir:   filepath.Join(dir, ".tmp"),
+		env: map[string]string{
+			"VERSION":                     "v1.2.3",
+			"RELEASE_FORGE":               "gitea",
+			"RELEASE_TOKEN":               "token",
+			"RELEASE_ARTIFACTS":           "charts",
+			"RELEASE_HELM_CHART_DIRS":     "charts/demo",
+			"RELEASE_HELM_OCI_REPOSITORY": "oci://registry.example/charts",
+			"RELEASE_HELM_OCI_PLAIN_HTTP": "1",
+			"RELEASE_NOTES_MODE":          "news-md",
+			"RELEASE_NOTES_SOURCE":        "NEWS.md",
+			"RELEASE_BODY_MODE":           "none",
+			"GORELEASER_BIN":              "/tools/goreleaser",
+		},
+		commands: fake,
+		stdout:   ioDiscard(),
+		stderr:   ioDiscard(),
+	}
+
+	if err := a.publish(); err != nil {
+		t.Fatal(err)
+	}
+	got := commandStrings(fake.runCommands)
+	if got[2] != "/fake/helm push dist/charts/demo-1.2.3.tgz oci://registry.example/charts --plain-http" {
+		t.Fatalf("third command = %q, want helm OCI plain HTTP push", got[2])
+	}
+}
+
+func TestPublishLogsIntoHelmOCIWithPlainHTTP(t *testing.T) {
+	dir := t.TempDir()
+	writeChart(t, filepath.Join(dir, "charts", "demo"), "demo")
+	writeFile(t, filepath.Join(dir, "NEWS.md"), "# News\n\n## v1.2.3 - 2026-07-02\n\n- release\n")
+	fake := &fakeCommandRunner{}
+	a := &app{
+		repoRoot: dir,
+		tmpDir:   filepath.Join(dir, ".tmp"),
+		env: map[string]string{
+			"VERSION":                     "v1.2.3",
+			"RELEASE_FORGE":               "gitea",
+			"RELEASE_TOKEN":               "token",
+			"RELEASE_ARTIFACTS":           "charts",
+			"RELEASE_HELM_CHART_DIRS":     "charts/demo",
+			"RELEASE_HELM_OCI_REPOSITORY": "oci://registry.example/charts",
+			"RELEASE_HELM_OCI_USERNAME":   "robot",
+			"RELEASE_HELM_OCI_PASSWORD":   "registry-token",
+			"RELEASE_HELM_OCI_PLAIN_HTTP": "1",
+			"RELEASE_NOTES_MODE":          "news-md",
+			"RELEASE_NOTES_SOURCE":        "NEWS.md",
+			"RELEASE_BODY_MODE":           "none",
+			"GORELEASER_BIN":              "/tools/goreleaser",
+		},
+		commands: fake,
+		stdout:   ioDiscard(),
+		stderr:   ioDiscard(),
+	}
+
+	if err := a.publish(); err != nil {
+		t.Fatal(err)
+	}
+	login := fake.runCommands[1]
+	if login.Args[len(login.Args)-1] != "--plain-http" {
+		t.Fatalf("login args = %#v, want --plain-http", login.Args)
+	}
+	push := fake.runCommands[3]
+	if !strings.Contains(" "+strings.Join(push.Args, " ")+" ", " --plain-http ") {
+		t.Fatalf("push args = %#v, want --plain-http", push.Args)
+	}
+}
+
 func TestResolveHelmOCIAuthReadsPasswordFile(t *testing.T) {
 	passwordFile := filepath.Join(t.TempDir(), "registry-password")
 	writeFile(t, passwordFile, "file-token\n")
@@ -1321,6 +1397,9 @@ func TestValidateChartConfigRejectsInvalidOCIRepository(t *testing.T) {
 		{"RELEASE_ARTIFACTS": "charts", "RELEASE_HELM_CHART_DIRS": "charts/demo", "RELEASE_HELM_OCI_REPOSITORY": "https://registry.example/charts"},
 		{"RELEASE_ARTIFACTS": "charts", "RELEASE_HELM_CHART_DIRS": "charts/demo", "RELEASE_HELM_OCI_REPOSITORY": "oci://registry.example/charts with-space"},
 		{"RELEASE_ARTIFACTS": "binaries", "RELEASE_HELM_OCI_REPOSITORY": "oci://registry.example/charts"},
+		{"RELEASE_HELM_OCI_PLAIN_HTTP": "1"},
+		{"RELEASE_ARTIFACTS": "binaries", "RELEASE_HELM_OCI_REPOSITORY": "oci://registry.example/charts", "RELEASE_HELM_OCI_PLAIN_HTTP": "1"},
+		{"RELEASE_HELM_OCI_REPOSITORY": "oci://registry.example/charts", "RELEASE_HELM_OCI_PLAIN_HTTP": "maybe"},
 	} {
 		a := &app{env: env}
 		if err := a.validateChartConfig(); err == nil {

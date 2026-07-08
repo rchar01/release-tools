@@ -21,10 +21,14 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - added explicit Helm OCI registry login support with
   `RELEASE_HELM_OCI_USERNAME`, `RELEASE_HELM_OCI_PASSWORD_FILE`, and
   environment-only `RELEASE_HELM_OCI_PASSWORD`
+- added `RELEASE_HELM_OCI_PLAIN_HTTP` for explicit insecure local or disposable
+  OCI chart registry tests
 - added Forgejo/Gitea-compatible classic Helm package uploads with
   `RELEASE_HELM_CLASSIC_URL`, `RELEASE_HELM_CLASSIC_USERNAME`,
   `RELEASE_HELM_CLASSIC_TOKEN_FILE`, and environment-only
   `RELEASE_HELM_CLASSIC_TOKEN`
+- added `make helm-registry-test` for Podman-backed Zot and ChartMuseum smoke
+  testing
 
 ## [3.3.0] - 2026-07-02
 

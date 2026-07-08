@@ -149,12 +149,16 @@ When explicit OCI auth is configured, the CLI logs in with Helm using a
 temporary registry config before pushing charts. If `RELEASE_HELM_CLASSIC_URL`
 is set, publish commands upload packaged charts to a Forgejo/Gitea-compatible
 classic Helm package registry after GoReleaser succeeds.
+`RELEASE_HELM_OCI_PLAIN_HTTP=1` is an explicit insecure-registry opt-in for
+local or disposable OCI registry tests.
 
 Reason:
 
 - Helm remains the chart packaging authority
 - local checks and packages can be validated before remote publishing exists
 - OCI publishing uses Helm's native `helm push` behavior
+- insecure OCI transport is explicit and limited to Helm registry login and
+  chart pushes
 - chart registry authentication is explicit and uses `helm registry login` with
   `--password-stdin`
 - plaintext OCI passwords are environment-only; committed config should use a

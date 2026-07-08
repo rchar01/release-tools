@@ -55,6 +55,7 @@
   - `RELEASE_HELM_OCI_REPOSITORY`
   - `RELEASE_HELM_OCI_USERNAME`
   - `RELEASE_HELM_OCI_PASSWORD_FILE`
+  - `RELEASE_HELM_OCI_PLAIN_HTTP`
   - `RELEASE_HELM_CLASSIC_URL`
   - `RELEASE_HELM_CLASSIC_USERNAME`
   - `RELEASE_HELM_CLASSIC_TOKEN_FILE`
@@ -88,6 +89,9 @@
 - `RELEASE_HELM_OCI_USERNAME` with `RELEASE_HELM_OCI_PASSWORD_FILE` or
   environment-only `RELEASE_HELM_OCI_PASSWORD` makes the CLI run
   `helm registry login` with a temporary registry config before OCI pushes.
+- `RELEASE_HELM_OCI_PLAIN_HTTP=1` appends Helm's `--plain-http` flag to OCI
+  registry login and chart pushes and is intended only for explicitly trusted
+  insecure registries.
 - `RELEASE_HELM_OCI_PASSWORD` is environment-only and is intentionally not a
   supported `.release-tools.env` key.
 - `RELEASE_HELM_CLASSIC_URL` enables raw Helm chart upload to a Forgejo/Gitea
@@ -112,12 +116,15 @@
 - Verification:
   - `make verify`
   - `make container-test`
+  - `make helm-registry-test` for Podman-backed Helm registry smoke tests
   - `scripts/test-errors` for focused error-message checks
 
 ## Self-Release Procedure
 - Do not use Make as the publish frontend.
 - Use `make verify` and `make container-test` for release verification before
   tagging.
+- Use `make helm-registry-test` before releases that change Helm registry
+  publishing behavior.
 - Update `NEWS.md` and `CHANGELOG.md` from `Unreleased` to the release version
   before committing release prep.
 - Build the current CLI with `make build` before publishing this repository.

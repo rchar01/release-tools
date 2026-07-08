@@ -36,6 +36,7 @@ var allowedConfigKeys = map[string]bool{
 	"RELEASE_HELM_OCI_REPOSITORY":     true,
 	"RELEASE_HELM_OCI_USERNAME":       true,
 	"RELEASE_HELM_OCI_PASSWORD_FILE":  true,
+	"RELEASE_HELM_OCI_PLAIN_HTTP":     true,
 	"RELEASE_HELM_CLASSIC_URL":        true,
 	"RELEASE_HELM_CLASSIC_USERNAME":   true,
 	"RELEASE_HELM_CLASSIC_TOKEN_FILE": true,
@@ -810,6 +811,9 @@ func (a *app) runHelmOCIPushes(packages []string, session *helmOCIAuthSession) e
 	}
 	for _, chartPackage := range packages {
 		args := []string{"push", chartPackage, repository}
+		if a.helmOCIPlainHTTP() {
+			args = append(args, "--plain-http")
+		}
 		if session != nil && session.registryConfig != "" {
 			args = append(args, "--registry-config", session.registryConfig)
 		}
@@ -826,6 +830,9 @@ func (a *app) runHelmOCILogin(helmBin, repository, registryConfig string, auth *
 		return err
 	}
 	args := []string{"registry", "login", host, "--username", auth.username, "--password-stdin", "--registry-config", registryConfig}
+	if a.helmOCIPlainHTTP() {
+		args = append(args, "--plain-http")
+	}
 	return a.runHelmWithStdin(helmBin, strings.NewReader(auth.password+"\n"), args...)
 }
 
@@ -1576,6 +1583,9 @@ func (a *app) validateChartConfig() error {
 	if err := a.validateHelmOCIAuthConfig(); err != nil {
 		return err
 	}
+	if err := a.validateHelmOCIPlainHTTPConfig(); err != nil {
+		return err
+	}
 	if err := a.validateHelmClassicConfig(); err != nil {
 		return err
 	}
@@ -1585,6 +1595,9 @@ func (a *app) validateChartConfig() error {
 	}
 	if !enabled && a.helmOCIRepository() != "" {
 		return errors.New("RELEASE_HELM_OCI_REPOSITORY requires RELEASE_ARTIFACTS to include charts")
+	}
+	if !enabled && a.env["RELEASE_HELM_OCI_PLAIN_HTTP"] != "" {
+		return errors.New("RELEASE_HELM_OCI_PLAIN_HTTP requires RELEASE_ARTIFACTS to include charts")
 	}
 	if !enabled && a.helmClassicURL() != "" {
 		return errors.New("RELEASE_HELM_CLASSIC_URL requires RELEASE_ARTIFACTS to include charts")
@@ -1704,6 +1717,28 @@ func (a *app) helmOCIRepository() string {
 	return strings.TrimSpace(a.env["RELEASE_HELM_OCI_REPOSITORY"])
 }
 
+func (a *app) helmOCIPlainHTTP() bool {
+	return configBool(a.env["RELEASE_HELM_OCI_PLAIN_HTTP"])
+}
+
+func configBool(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+func validateConfigBool(key, value string) error {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "0", "1", "false", "true", "no", "yes", "off", "on":
+		return nil
+	default:
+		return fmt.Errorf("%s must be a boolean value", key)
+	}
+}
+
 func (a *app) helmOCIRepositoryChecked() (string, error) {
 	repository := a.helmOCIRepository()
 	if repository == "" {
@@ -1755,6 +1790,16 @@ func (a *app) validateHelmOCIAuthConfig() error {
 	}
 	if a.helmOCIPasswordEnv() == "" && a.helmOCIPasswordFile() == "" {
 		return errors.New("RELEASE_HELM_OCI_PASSWORD or RELEASE_HELM_OCI_PASSWORD_FILE is required when RELEASE_HELM_OCI_USERNAME is set")
+	}
+	return nil
+}
+
+func (a *app) validateHelmOCIPlainHTTPConfig() error {
+	if err := validateConfigBool("RELEASE_HELM_OCI_PLAIN_HTTP", a.env["RELEASE_HELM_OCI_PLAIN_HTTP"]); err != nil {
+		return err
+	}
+	if a.env["RELEASE_HELM_OCI_PLAIN_HTTP"] != "" && a.helmOCIRepository() == "" {
+		return errors.New("RELEASE_HELM_OCI_PLAIN_HTTP requires RELEASE_HELM_OCI_REPOSITORY")
 	}
 	return nil
 }

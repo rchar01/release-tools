@@ -104,6 +104,7 @@ Supported `.release-tools.env` keys:
 - `RELEASE_HELM_OCI_REPOSITORY`
 - `RELEASE_HELM_OCI_USERNAME`
 - `RELEASE_HELM_OCI_PASSWORD_FILE`
+- `RELEASE_HELM_OCI_PLAIN_HTTP`
 - `RELEASE_HELM_CLASSIC_URL`
 - `RELEASE_HELM_CLASSIC_USERNAME`
 - `RELEASE_HELM_CLASSIC_TOKEN_FILE`
@@ -150,6 +151,7 @@ RELEASE_HELM_APP_VERSION_FROM=tag
 # RELEASE_HELM_OCI_REPOSITORY=oci://registry.example.com/myowner/charts
 # RELEASE_HELM_OCI_USERNAME=robot
 # RELEASE_HELM_OCI_PASSWORD_FILE=~/.config/helm/oci-token
+# RELEASE_HELM_OCI_PLAIN_HTTP=0
 # RELEASE_HELM_CLASSIC_URL=https://forge.example/api/packages/myowner/helm
 # RELEASE_HELM_CLASSIC_USERNAME=robot
 # RELEASE_HELM_CLASSIC_TOKEN_FILE=~/.config/forgejo/helm-token
@@ -186,6 +188,9 @@ publishing to a private registry. If `RELEASE_HELM_OCI_USERNAME` is set with
 `--registry-config <temporary-file>` before pushing charts, then uses that
 temporary registry config for `helm push`. Plaintext
 `RELEASE_HELM_OCI_PASSWORD` is intentionally not accepted in `.release-tools.env`.
+Set `RELEASE_HELM_OCI_PLAIN_HTTP=1` only for disposable or otherwise explicitly
+trusted insecure registries; it appends Helm's `--plain-http` flag to OCI chart
+registry login and pushes.
 Chart signing is not implemented yet.
 
 `RELEASE_HELM_CLASSIC_URL` is for Forgejo/Gitea-compatible classic Helm package

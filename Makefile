@@ -11,7 +11,7 @@ GO_ENV := CGO_ENABLED=0 GOTMPDIR=$(GO_TMP_DIR) GOCACHE=$(GO_CACHE_DIR)
 LD_FLAGS := -X main.releaseToolsVersion=$(VERSION)
 RELEASE_TOOLS ?= $(GO_ENV) go run -ldflags "$(LD_FLAGS)" ./cmd/release-tools
 
-.PHONY: help build test verify container-test check snapshot clean
+.PHONY: help build test verify container-test helm-registry-test check snapshot clean
 
 ## Show available maintainer targets
 help:
@@ -43,6 +43,10 @@ verify: test
 ## Run verification in the dev container
 container-test:
 	scripts/in-container make verify
+
+## Run Podman-backed Helm registry smoke tests
+helm-registry-test:
+	scripts/test-helm-registries
 
 ## Validate GoReleaser configuration
 check:
