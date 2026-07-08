@@ -832,6 +832,50 @@ func TestSnapshotSignsHelmChartsWithProvenance(t *testing.T) {
 	}
 }
 
+func TestSnapshotWritesGoReleaserArtifactManifest(t *testing.T) {
+	dir := t.TempDir()
+	fake := &fakeCommandRunner{}
+	fake.onRun = func(cmd runner.Command) error {
+		if cmd.Name == "/tools/goreleaser" {
+			if err := os.MkdirAll(filepath.Join(dir, "dist"), 0o755); err != nil {
+				return err
+			}
+			writeFile(t, filepath.Join(dir, "dist", "release-tools"), "binary")
+			writeFile(t, filepath.Join(dir, "dist", "release-tools.tar.gz"), "archive")
+			writeFile(t, filepath.Join(dir, "dist", "artifacts.json"), `[
+{"name":"metadata.json","path":"dist/metadata.json","type":"Metadata"},
+{"name":"release-tools","path":"dist/release-tools","type":"Binary","goos":"linux","goarch":"amd64","target":"linux_amd64_v1","extra":{"Checksum":"sha256:abc123"}},
+{"name":"release-tools.tar.gz","path":"dist/release-tools.tar.gz","type":"Archive","target":"linux_amd64_v1","extra":{}}
+]`)
+		}
+		return nil
+	}
+	a := &app{
+		repoRoot: dir,
+		env: map[string]string{
+			"GORELEASER_BIN": "/tools/goreleaser",
+		},
+		commands: fake,
+		stdout:   ioDiscard(),
+		stderr:   ioDiscard(),
+	}
+
+	if err := a.snapshot(); err != nil {
+		t.Fatal(err)
+	}
+	manifest := readReleaseManifest(t, filepath.Join(dir, "dist", "release-manifest.json"))
+	artifacts := manifest.Artifacts.GoReleaser
+	if len(artifacts) != 2 {
+		t.Fatalf("goreleaser artifacts = %d, want 2", len(artifacts))
+	}
+	if artifacts[0].Name != "release-tools.tar.gz" || artifacts[0].Type != "Archive" || artifacts[0].SHA256 == "" {
+		t.Fatalf("archive artifact = %#v, want computed SHA-256", artifacts[0])
+	}
+	if artifacts[1].Name != "release-tools" || artifacts[1].Type != "Binary" || artifacts[1].SHA256 != "abc123" {
+		t.Fatalf("binary artifact = %#v, want GoReleaser checksum", artifacts[1])
+	}
+}
+
 func TestPublishPackagesHelmChartsBeforeGoreleaser(t *testing.T) {
 	dir := t.TempDir()
 	writeChart(t, filepath.Join(dir, "charts", "demo"), "demo")
@@ -1652,6 +1696,58 @@ func TestPublishTagPushesHelmChartsFromClone(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(repo, "dist", "charts", "demo-1.2.3.tgz")); err != nil {
 		t.Fatalf("publish-tag chart package was not copied back: %v", err)
+	}
+}
+
+func TestPublishTagCopiesBinaryOnlyManifestFromClone(t *testing.T) {
+	dir := t.TempDir()
+	repo := filepath.Join(dir, "repo")
+	clone := filepath.Join(dir, ".tmp", "release-v1.2.3")
+	fake := &fakeCommandRunner{}
+	fake.onRun = func(cmd runner.Command) error {
+		if cmd.Name == "git" && len(cmd.Args) > 0 && cmd.Args[0] == "clone" {
+			if err := os.MkdirAll(clone, 0o755); err != nil {
+				return err
+			}
+			writeFile(t, filepath.Join(clone, "NEWS.md"), "# News\n\n## v1.2.3 - 2026-07-02\n\n- release\n")
+			writeFile(t, filepath.Join(clone, ".goreleaser.yaml"), "version: 2\n")
+		}
+		if cmd.Name == "/tools/goreleaser" {
+			if err := os.MkdirAll(filepath.Join(clone, "dist"), 0o755); err != nil {
+				return err
+			}
+			writeFile(t, filepath.Join(clone, "dist", "release-tools"), "binary")
+			writeFile(t, filepath.Join(clone, "dist", "artifacts.json"), `[
+{"name":"release-tools","path":"dist/release-tools","type":"Binary","goos":"linux","goarch":"amd64","target":"linux_amd64_v1","extra":{"Checksum":"sha256:def456"}}
+]`)
+		}
+		return nil
+	}
+	a := &app{
+		repoRoot: repo,
+		tmpDir:   filepath.Join(dir, ".tmp"),
+		env: map[string]string{
+			"RELEASE_FORGE":        "gitea",
+			"RELEASE_TOKEN":        "token",
+			"RELEASE_NOTES_MODE":   "news-md",
+			"RELEASE_NOTES_SOURCE": "NEWS.md",
+			"RELEASE_BODY_MODE":    "none",
+			"GORELEASER_BIN":       "/tools/goreleaser",
+		},
+		commands: fake,
+		stdout:   ioDiscard(),
+		stderr:   ioDiscard(),
+	}
+
+	if err := a.publishTag("v1.2.3"); err != nil {
+		t.Fatal(err)
+	}
+	manifest := readReleaseManifest(t, filepath.Join(repo, "dist", "release-manifest.json"))
+	if manifest.Release.Tag != "v1.2.3" || manifest.Release.Version != "1.2.3" {
+		t.Fatalf("manifest release = %#v, want v1.2.3 / 1.2.3", manifest.Release)
+	}
+	if len(manifest.Artifacts.GoReleaser) != 1 || manifest.Artifacts.GoReleaser[0].SHA256 != "def456" {
+		t.Fatalf("goreleaser artifacts = %#v, want copied binary metadata", manifest.Artifacts.GoReleaser)
 	}
 }
 

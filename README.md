@@ -203,11 +203,13 @@ Chart-enabled snapshot, publish, and publish-tag flows write
 `dist/release-manifest.json` with the release tag, normalized chart version,
 packaged chart path, SHA-256, optional provenance file metadata, configured Helm
 OCI or classic registry target, and optional OCI digest/signing metadata.
+When GoReleaser writes `dist/artifacts.json`, the manifest also records
+GoReleaser-owned artifact names, types, paths, targets, platforms, and SHA-256
+values without taking ownership of those artifacts away from GoReleaser.
 Publish-time chart packages are copied back into `dist/charts` after remote
 chart publishing succeeds so manifest paths remain valid. For `publish-tag`, the
 chart packages, provenance files, and manifest are copied back from the temporary
-clone to the caller repository. GoReleaser artifact metadata and manifest upload
-are left for a later phase.
+clone to the caller repository. Manifest upload is left for a later phase.
 
 Set `RELEASE_HELM_OCI_PLAIN_HTTP=1` only for disposable or otherwise explicitly
 trusted insecure OCI registries. It appends Helm's `--plain-http` flag to OCI

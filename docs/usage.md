@@ -276,6 +276,17 @@ The chart release manifest currently uses this schema:
     "version": "1.2.3"
   },
   "artifacts": {
+    "goreleaser": [
+      {
+        "name": "myapp_1.2.3_linux_amd64.tar.gz",
+        "type": "Archive",
+        "path": "dist/myapp_1.2.3_linux_amd64.tar.gz",
+        "target": "linux_amd64_v1",
+        "goos": "linux",
+        "goarch": "amd64",
+        "sha256": "..."
+      }
+    ],
     "helm_charts": [
       {
         "name": "myapp",
@@ -297,16 +308,18 @@ The chart release manifest currently uses this schema:
 }
 ```
 
-The provenance, OCI digest/signing, and classic fields appear only when those
-outputs or targets are configured. Manifest chart package paths are repo-relative
-`dist/charts/...` paths. During publish commands, charts are first packaged in a
-temporary directory outside the repository so GoReleaser cannot clean them before
-upload. After chart pushes or uploads succeed, those packages and `.prov` files
-are copied back into `dist/charts` before the manifest is written. For
-`publish-tag`, the chart packages, provenance files, and manifest are copied
-from the clean temporary tag clone back to the caller repository. The manifest
-is not yet uploaded as a release asset and does not yet merge GoReleaser's
-`dist/artifacts.json` metadata.
+The `goreleaser` array appears when GoReleaser writes `dist/artifacts.json`.
+Metadata entries are skipped; unknown fields are ignored; missing checksums are
+filled from the referenced local file when it exists. The provenance, OCI
+digest/signing, and classic fields appear only when those outputs or targets are
+configured. Manifest chart package paths are repo-relative `dist/charts/...`
+paths. During publish commands, charts are first packaged in a temporary
+directory outside the repository so GoReleaser cannot clean them before upload.
+After chart pushes or uploads succeed, those packages and `.prov` files are
+copied back into `dist/charts` before the manifest is written. For
+`publish-tag`, the chart packages, provenance files, and manifest are copied from
+the clean temporary tag clone back to the caller repository. The manifest is not
+yet uploaded as a release asset.
 
 Required for release commands:
 

@@ -37,8 +37,8 @@ config surface before behavior is proven.
 - `make helm-provenance-test` builds the current CLI, generates a disposable GPG
   key, runs chart-enabled `release-tools snapshot`, and verifies the signed chart
   with `helm verify`.
-- GoReleaser metadata is currently separate in `dist/artifacts.json` and is not
-  merged into the release manifest.
+- GoReleaser metadata from `dist/artifacts.json` is merged into the release
+  manifest when present.
 - The release manifest is generated locally but is not uploaded as a release
   asset.
 
@@ -64,8 +64,10 @@ config surface before behavior is proven.
   Decision: use Helm's digest output from local Zot-backed OCI push/pull testing
   as the first implementation target; live OCI signing against additional
   registries remains useful validation but is not required for the command model.
-- [ ] Should binary artifact manifest merging be enabled automatically when
+- [x] Should binary artifact manifest merging be enabled automatically when
   `dist/artifacts.json` exists, or guarded behind an explicit config key?
+  Decision: merge automatically when GoReleaser writes `dist/artifacts.json`;
+  this is read-only metadata and does not expand the artifact config surface.
 - [ ] Should manifest release-asset upload be automatic for chart-enabled flows,
   or opt-in to avoid changing release asset surfaces unexpectedly?
 
@@ -161,24 +163,24 @@ without taking ownership away from GoReleaser.
 
 Tasks:
 
-- [ ] Inspect GoReleaser `dist/artifacts.json` output for this repository and at
+- [x] Inspect GoReleaser `dist/artifacts.json` output for this repository and at
   least one representative consumer fixture.
-- [ ] Define manifest fields for GoReleaser-owned artifacts, including artifact
+- [x] Define manifest fields for GoReleaser-owned artifacts, including artifact
   name, path, type, target, and checksum when available.
-- [ ] Keep merging tolerant of absent `dist/artifacts.json` and unknown artifact
+- [x] Keep merging tolerant of absent `dist/artifacts.json` and unknown artifact
   types.
-- [ ] Add deterministic manifest tests for binary-only and mixed binaries/charts
+- [x] Add deterministic manifest tests for binary-only and mixed binaries/charts
   flows.
-- [ ] Document that GoReleaser remains the artifact source of truth.
+- [x] Document that GoReleaser remains the artifact source of truth.
 
 Validation gate:
 
-- [ ] `dist/release-manifest.json` remains deterministic and backward-compatible
+- [x] `dist/release-manifest.json` remains deterministic and backward-compatible
   for existing chart consumers.
 - [ ] `make verify` passes.
 
-Decision point: Decide whether automatic merge is acceptable or whether it needs
-an explicit opt-in key.
+Decision point: Automatic merge is acceptable because it only reflects
+GoReleaser-owned metadata already written into `dist/artifacts.json`.
 
 ## Phase 5: Release Manifest Asset Upload
 
@@ -229,6 +231,7 @@ Validation gate:
 | 2026-07-08 | Plan created for chart signing and manifest follow-ups. | User requested a written plan for remaining chart/signing future work. |
 | 2026-07-08 | Phase 1 release-readiness validation passed. | `make verify`, `make container-test`, `make helm-registry-test`, `make helm-provenance-test`, and `make codeberg-smoke-test` all passed sequentially; Codeberg smoke passed for `rch/release-tools-smoke` `v0.0.1783530033`. |
 | 2026-07-08 | Phase 2 and Phase 3 OCI signing implementation started. | Research selected Cosign and Notation over `helm-sigstore`; implementation parses Helm `Pushed:`/`Digest:` output, signs digest refs only, and records digest/signature metadata in the chart manifest. |
+| 2026-07-08 | Phase 4 GoReleaser artifact manifest merge implemented. | Snapshot, publish, and publish-tag now merge `dist/artifacts.json` metadata into `dist/release-manifest.json` when present, including binary-only publish-tag output copying. |
 
 ## Decision Log
 

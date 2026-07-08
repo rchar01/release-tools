@@ -115,7 +115,18 @@ type releaseManifestRelease struct {
 }
 
 type releaseManifestArtifacts struct {
-	HelmCharts []releaseManifestHelmChart `json:"helm_charts"`
+	GoReleaser []releaseManifestGoReleaserArtifact `json:"goreleaser,omitempty"`
+	HelmCharts []releaseManifestHelmChart          `json:"helm_charts"`
+}
+
+type releaseManifestGoReleaserArtifact struct {
+	Name   string `json:"name"`
+	Type   string `json:"type"`
+	Path   string `json:"path"`
+	Target string `json:"target,omitempty"`
+	GOOS   string `json:"goos,omitempty"`
+	GOARCH string `json:"goarch,omitempty"`
+	SHA256 string `json:"sha256,omitempty"`
 }
 
 type releaseManifestHelmChart struct {
@@ -533,7 +544,7 @@ func (a *app) snapshot() error {
 	if err != nil {
 		return err
 	}
-	if len(packages) > 0 {
+	if len(packages) > 0 || a.goreleaserArtifactsExist() {
 		return a.writeReleaseManifest(chartTag, chartVersion, packages, nil)
 	}
 	return nil
@@ -918,6 +929,13 @@ func (a *app) writeReleaseManifest(tag, version string, packages []string, ociRe
 	if err != nil {
 		return err
 	}
+	if charts == nil {
+		charts = []releaseManifestHelmChart{}
+	}
+	goreleaserArtifacts, err := a.releaseManifestGoReleaserArtifacts()
+	if err != nil {
+		return err
+	}
 	manifest := releaseManifest{
 		SchemaVersion: 1,
 		Release: releaseManifestRelease{
@@ -925,6 +943,7 @@ func (a *app) writeReleaseManifest(tag, version string, packages []string, ociRe
 			Version: version,
 		},
 		Artifacts: releaseManifestArtifacts{
+			GoReleaser: goreleaserArtifacts,
 			HelmCharts: charts,
 		},
 	}
@@ -998,6 +1017,83 @@ func (a *app) releaseManifestHelmCharts(version string, packages []string, ociRe
 		return charts[i].Path < charts[j].Path
 	})
 	return charts, nil
+}
+
+func (a *app) goreleaserArtifactsExist() bool {
+	_, err := os.Stat(filepath.Join(a.repoRoot, "dist", "artifacts.json"))
+	return err == nil
+}
+
+func (a *app) releaseManifestGoReleaserArtifacts() ([]releaseManifestGoReleaserArtifact, error) {
+	artifactsPath := filepath.Join(a.repoRoot, "dist", "artifacts.json")
+	content, err := os.ReadFile(artifactsPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	type goreleaserArtifact struct {
+		Name   string         `json:"name"`
+		Path   string         `json:"path"`
+		Type   string         `json:"type"`
+		GOOS   string         `json:"goos"`
+		GOARCH string         `json:"goarch"`
+		Target string         `json:"target"`
+		Extra  map[string]any `json:"extra"`
+	}
+	raw := []goreleaserArtifact{}
+	if err := json.Unmarshal(content, &raw); err != nil {
+		return nil, fmt.Errorf("failed to parse GoReleaser artifacts metadata: %w", err)
+	}
+	artifacts := []releaseManifestGoReleaserArtifact{}
+	for _, artifact := range raw {
+		if artifact.Type == "Metadata" || artifact.Name == "" || artifact.Path == "" {
+			continue
+		}
+		entry := releaseManifestGoReleaserArtifact{
+			Name:   artifact.Name,
+			Type:   artifact.Type,
+			Path:   manifestPathForRepo(a.repoRoot, artifact.Path),
+			Target: artifact.Target,
+			GOOS:   artifact.GOOS,
+			GOARCH: artifact.GOARCH,
+			SHA256: goreleaserArtifactSHA256(artifact.Extra),
+		}
+		if entry.SHA256 == "" {
+			if sha, err := fileSHA256(a.repoPath(artifact.Path)); err == nil {
+				entry.SHA256 = sha
+			} else if !errors.Is(err, os.ErrNotExist) {
+				return nil, err
+			}
+		}
+		artifacts = append(artifacts, entry)
+	}
+	sort.Slice(artifacts, func(i, j int) bool {
+		if artifacts[i].Type != artifacts[j].Type {
+			return artifacts[i].Type < artifacts[j].Type
+		}
+		if artifacts[i].Name != artifacts[j].Name {
+			return artifacts[i].Name < artifacts[j].Name
+		}
+		return artifacts[i].Path < artifacts[j].Path
+	})
+	return artifacts, nil
+}
+
+func goreleaserArtifactSHA256(extra map[string]any) string {
+	if extra == nil {
+		return ""
+	}
+	checksum, ok := extra["Checksum"].(string)
+	if !ok {
+		return ""
+	}
+	checksum = strings.TrimSpace(checksum)
+	if value, ok := strings.CutPrefix(checksum, "sha256:"); ok {
+		return value
+	}
+	return ""
 }
 
 func (a *app) persistHelmPackages(packages []string) ([]string, error) {
@@ -1397,12 +1493,12 @@ func (a *app) publish() error {
 	if err := a.runHelmClassicUploads(packages, helmClassicAuth); err != nil {
 		return err
 	}
-	if len(packages) == 0 {
-		return nil
-	}
-	manifestPackages, err := a.persistHelmPackages(packages)
-	if err != nil {
-		return err
+	manifestPackages := []string(nil)
+	if len(packages) > 0 {
+		manifestPackages, err = a.persistHelmPackages(packages)
+		if err != nil {
+			return err
+		}
 	}
 	return a.writeReleaseManifest(tag, chartVersionFromTag(tag), manifestPackages, rebaseHelmOCIPushResults(ociResults, manifestPackages))
 }
@@ -1485,10 +1581,14 @@ func (a *app) publishTag(tag string) error {
 	if err := cloneApp.runHelmClassicUploads(packages, helmClassicAuth); err != nil {
 		return err
 	}
-	if len(packages) > 0 {
-		manifestPackages, err := cloneApp.persistHelmPackages(packages)
-		if err != nil {
-			return err
+	if len(packages) > 0 || cloneApp.goreleaserArtifactsExist() {
+		manifestPackages := []string(nil)
+		var err error
+		if len(packages) > 0 {
+			manifestPackages, err = cloneApp.persistHelmPackages(packages)
+			if err != nil {
+				return err
+			}
 		}
 		if err := cloneApp.writeReleaseManifest(tag, chartVersionFromTag(tag), manifestPackages, rebaseHelmOCIPushResults(ociResults, manifestPackages)); err != nil {
 			return err
@@ -1503,7 +1603,9 @@ func (a *app) publishTag(tag string) error {
 
 func (a *app) copyReleaseOutputsFrom(source *app) error {
 	if err := copyDirectory(filepath.Join(source.repoRoot, "dist", "charts"), filepath.Join(a.repoRoot, "dist", "charts")); err != nil {
-		return err
+		if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
 	}
 	content, err := os.ReadFile(filepath.Join(source.repoRoot, "dist", "release-manifest.json"))
 	if err != nil {

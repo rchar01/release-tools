@@ -43,6 +43,9 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - added `dist/release-manifest.json` for chart-enabled snapshot, publish, and
   publish-tag flows, recording the release tag, chart version, packaged chart
   path, SHA-256, and configured Helm OCI or classic registry targets
+- added GoReleaser `dist/artifacts.json` metadata merging into
+  `dist/release-manifest.json`, including binary/archive/checksum names, types,
+  paths, targets, platforms, and SHA-256 values when available
 - added Helm chart provenance signing with `RELEASE_HELM_PROVENANCE`,
   `RELEASE_HELM_GPG_KEY`, and `RELEASE_HELM_GPG_KEYRING`; generated `.prov`
   files are copied back to `dist/charts` and recorded in the release manifest

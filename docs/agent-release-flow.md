@@ -179,6 +179,8 @@ Reason:
   `dist/release-manifest.json` with chart package names, versions, paths,
   SHA-256 values, optional provenance metadata, and configured registry targets
   after local packaging or remote chart publishing succeeds
+- when GoReleaser writes `dist/artifacts.json`, release manifests merge
+  GoReleaser-owned artifact metadata as a read-only view of the source of truth
 - classic Helm provenance uses Helm's own `helm package --sign` behavior with an
   explicit key and keyring
 - publish commands copy successfully uploaded chart packages back into

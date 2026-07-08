@@ -364,7 +364,7 @@ Tasks:
 - [x] Record OCI chart refs when available; OCI digests remain pending until Helm
   exposes them reliably.
 - [x] Record classic chart package URLs when available.
-- [ ] Merge GoReleaser artifact metadata if `dist/artifacts.json` or equivalent
+- [x] Merge GoReleaser artifact metadata if `dist/artifacts.json` or equivalent
   is available and stable enough.
 - [x] Record signatures and provenance files when generated.
 - [ ] Add optional upload as a forge release asset only after upload behavior is
@@ -441,6 +441,7 @@ Validation gate:
 | 2026-07-08 | Live Codeberg chart publishing verified. | `make codeberg-smoke-test` passed with package-registry credentials; the smoke waits for Codeberg Helm `index.yaml` to contain the uploaded chart name and exact release version. |
 | 2026-07-08 | Phase 6 container image preflights implemented. | Added top-level GoReleaser container config detection for `dockers`, `dockers_v2`, `docker_manifests`, and `docker_signs`; `doctor` and `tools-check` now require the matching Docker, Podman, Cosign, or configured static signing command only when those keys are present. |
 | 2026-07-08 | Phase 8 chart release manifest implemented. | Chart-enabled snapshot, publish, and publish-tag flows now write `dist/release-manifest.json` with tag, version, chart package paths, SHA-256 values, OCI refs, and classic Helm package endpoints; publish commands copy packages back into `dist/charts`, and publish-tag copies chart packages plus the manifest back from the temporary tag clone. |
+| 2026-07-08 | Phase 8 GoReleaser artifact metadata merge implemented. | When GoReleaser writes `dist/artifacts.json`, release manifests now include GoReleaser-owned artifact names, types, paths, targets, platforms, and SHA-256 values without changing artifact ownership. |
 | 2026-07-08 | Phase 7 Helm provenance signing implemented. | Chart-enabled flows can run `helm package --sign` with explicit GPG key/keyring config, copy generated `.prov` files to `dist/charts`, and record provenance paths plus SHA-256 values in `dist/release-manifest.json`. |
 | 2026-07-08 | Phase 9 docs and examples pass completed. | Added a stable chart release env example and doc contract tests that compare the canonical usage key list and env examples against the implemented config allowlist. |
 | 2026-07-08 | Helm provenance smoke test added and passed. | `make helm-provenance-test` builds the current CLI, generates a disposable GPG key, runs chart-enabled `release-tools snapshot`, confirms manifest provenance metadata, and verifies the signed chart with `helm verify`. |
