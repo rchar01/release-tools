@@ -102,6 +102,8 @@ Supported `.release-tools.env` keys:
 - `RELEASE_HELM_VERSION_FROM`
 - `RELEASE_HELM_APP_VERSION_FROM`
 - `RELEASE_HELM_OCI_REPOSITORY`
+- `RELEASE_HELM_OCI_USERNAME`
+- `RELEASE_HELM_OCI_PASSWORD_FILE`
 - `RELEASE_NOTES_SOURCE`
 - `RELEASE_NOTES_MODE`
 - `RELEASE_BODY_MODE`
@@ -116,6 +118,7 @@ Supported environment-only variables:
 - `RELEASE_TOKEN`
 - native GoReleaser token variables: `GITEA_TOKEN`, `GITHUB_TOKEN`, or
   `GITLAB_TOKEN`
+- `RELEASE_HELM_OCI_PASSWORD`
 - `VERSION`
 
 Environment variables override `.release-tools.env` values. Set
@@ -141,6 +144,8 @@ RELEASE_HELM_CHART_DIRS=charts/myapp
 RELEASE_HELM_VERSION_FROM=tag
 RELEASE_HELM_APP_VERSION_FROM=tag
 # RELEASE_HELM_OCI_REPOSITORY=oci://registry.example.com/myowner/charts
+# RELEASE_HELM_OCI_USERNAME=robot
+# RELEASE_HELM_OCI_PASSWORD_FILE=~/.config/helm/oci-token
 ```
 
 Only `tag` is currently supported for Helm chart and app versions. A release tag
@@ -166,8 +171,13 @@ version can be derived from the release tag.
 `oci://registry.example.com/myowner/charts`. Do not include the chart name or
 version tag; Helm derives those from the packaged chart. The caller must run
 `helm registry login` or otherwise provide Helm registry credentials before
-publishing to a private registry. `release-tools` does not read chart registry
-tokens or run `helm registry login` yet. Chart signing is not implemented yet.
+publishing to a private registry. If `RELEASE_HELM_OCI_USERNAME` is set with
+`RELEASE_HELM_OCI_PASSWORD_FILE` or environment-only `RELEASE_HELM_OCI_PASSWORD`,
+`release-tools` runs `helm registry login` with `--password-stdin` and
+`--registry-config <temporary-file>` before pushing charts, then uses that
+temporary registry config for `helm push`. Plaintext
+`RELEASE_HELM_OCI_PASSWORD` is intentionally not accepted in `.release-tools.env`.
+Chart signing is not implemented yet.
 
 Required for release commands:
 

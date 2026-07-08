@@ -18,6 +18,9 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   with `publish-tag` packaging charts from the clean temporary tag clone
 - added `RELEASE_HELM_OCI_REPOSITORY` for pushing packaged charts to a Helm OCI
   repository after GoReleaser publish succeeds
+- added explicit Helm OCI registry login support with
+  `RELEASE_HELM_OCI_USERNAME`, `RELEASE_HELM_OCI_PASSWORD_FILE`, and
+  environment-only `RELEASE_HELM_OCI_PASSWORD`
 
 ## [3.3.0] - 2026-07-02
 

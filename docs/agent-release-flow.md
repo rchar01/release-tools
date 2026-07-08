@@ -145,14 +145,18 @@ and invokes Helm for chart work. `check` runs Helm dependency and lint checks.
 and app version source. Publish commands package charts before GoReleaser
 publishes release assets. If `RELEASE_HELM_OCI_REPOSITORY` is set, publish
 commands push packaged charts to that OCI repository after GoReleaser succeeds.
+When explicit OCI auth is configured, the CLI logs in with Helm using a
+temporary registry config before pushing charts.
 
 Reason:
 
 - Helm remains the chart packaging authority
 - local checks and packages can be validated before remote publishing exists
 - OCI publishing uses Helm's native `helm push` behavior
-- chart registry authentication remains caller-owned until temporary Helm auth
-  handling is implemented
+- chart registry authentication is explicit and uses `helm registry login` with
+  `--password-stdin`
+- plaintext OCI passwords are environment-only; committed config should use a
+  password file path instead
 - chart signing can be added without changing the command surface
 
 ### Go Preflight Is Optional
@@ -180,7 +184,8 @@ When charts are enabled, it also packages charts into `dist/charts`.
 `release-tools publish` and `release-tools publish-tag` package charts before
 GoReleaser publish starts. `publish-tag` performs that package step inside the
 clean temporary tag clone. When OCI chart publishing is configured, they push
-the packaged charts after GoReleaser succeeds.
+the packaged charts after GoReleaser succeeds. Missing or unreadable explicit
+OCI auth is resolved before GoReleaser starts.
 
 Reason:
 

@@ -88,6 +88,8 @@ Candidate keys for later milestones, not stable until implemented:
 
 ```sh
 RELEASE_HELM_OCI_REPOSITORY=oci://codeberg.org/myowner/charts
+RELEASE_HELM_OCI_USERNAME=robot
+RELEASE_HELM_OCI_PASSWORD_FILE=~/.config/registry/token
 
 RELEASE_HELM_CLASSIC_MODE=none
 RELEASE_HELM_CLASSIC_URL=https://codeberg.org/api/packages/myowner/helm
@@ -236,11 +238,14 @@ idempotency semantics.
 Candidate A: Helm OCI registry.
 
 - [x] Add `RELEASE_HELM_OCI_REPOSITORY`.
-- [x] Defer OCI token config until `release-tools` performs registry login.
-- [x] Defer temporary Helm config and registry config paths until
-  `release-tools` performs registry login.
+- [x] Add explicit OCI auth config with `RELEASE_HELM_OCI_USERNAME`,
+  `RELEASE_HELM_OCI_PASSWORD_FILE`, and environment-only
+  `RELEASE_HELM_OCI_PASSWORD`.
+- [x] Use temporary Helm registry config paths for explicit OCI auth.
 - [x] Decide whether `release-tools` performs `helm registry login` or requires
   pre-authenticated Helm registry config.
+- [x] Run `helm registry login --password-stdin --registry-config` when explicit
+  OCI auth is configured.
 - [x] Run `helm push <chart>.tgz oci://...` for each packaged chart.
 - [ ] Capture the resulting chart reference when Helm output exposes it
   reliably.
@@ -261,7 +266,7 @@ Candidate B: Forgejo/Gitea classic Helm package registry.
 
 Validation gate:
 
-- [x] Unit tests for command construction.
+- [x] Unit tests for auth resolution and command construction.
 - [x] Stubbed publish tests for success and command ordering.
 - [ ] Manual or container-backed end-to-end prototype against the chosen target.
 - [ ] `make verify`
@@ -405,6 +410,7 @@ Validation gate:
 | 2026-07-08 | Phase 3 local Helm behavior implemented. | Added Helm chart config, local check/package commands, dev-container Helm install, unit tests, `scripts/test-errors`, and stub Helm/GoReleaser integration coverage in `scripts/test`; chart paths are constrained inside the repo including symlink targets; `make verify` and `make container-test` passed. |
 | 2026-07-08 | Phase 4 publish sequencing implemented. | Added chart packaging before GoReleaser publish and publish-tag, clone-local packaging tests, failure-ordering coverage, and stub publish coverage in `scripts/test`; `make container-test` passed. |
 | 2026-07-08 | Phase 5 OCI backend started. | Added `RELEASE_HELM_OCI_REPOSITORY`, `helm push` after successful GoReleaser publish, unit ordering coverage, and stub publish coverage; real-registry prototype still pending. |
+| 2026-07-08 | Phase 5 explicit OCI auth implemented. | Added `helm registry login` with `--password-stdin` and temporary registry config when explicit OCI auth is configured; pre-authenticated Helm remains supported when auth config is omitted. |
 
 ## Decision Log
 
@@ -414,5 +420,6 @@ Validation gate:
 | 2026-07-08 | Start with local Helm check/package before remote publishing or signing. | Lowest-risk milestone with clear validation and no registry side effects. |
 | 2026-07-08 | Do not silently reuse `RELEASE_TOKEN` for registries and package repositories. | Forge release tokens and registry/package tokens often have different scopes. |
 | 2026-07-08 | Implement OCI chart publishing before classic Forgejo/Gitea packages. | Helm-native `helm push` is the narrowest first remote backend. |
-| 2026-07-08 | Require pre-authenticated Helm for OCI chart publishing for now. | Avoids mutating user-global Helm config and avoids adding token config before temporary auth handling is designed. |
+| 2026-07-08 | Keep pre-authenticated Helm supported when explicit OCI auth config is omitted. | Preserves the simple Helm-native path for callers that already manage registry login. |
 | 2026-07-08 | Treat existing OCI chart versions as registry-owned errors. | Helm docs do not document overwrite semantics or a force flag, so `release-tools` fails on `helm push` errors rather than trying to overwrite. |
+| 2026-07-08 | Support explicit OCI auth without accepting plaintext passwords in `.release-tools.env`. | Keeps committed config free of registry secrets while allowing CI to provide environment-only credentials. |

@@ -177,9 +177,12 @@ When `charts` is enabled, `release-tools check` runs Helm dependency and lint
 checks, `release-tools snapshot` packages charts into `dist/charts`, and
 publish commands package charts before GoReleaser publishes release assets. If
 `RELEASE_HELM_OCI_REPOSITORY` is set, publish commands push packaged charts to
-that OCI repository after GoReleaser succeeds. Helm registry login is caller
-owned; `release-tools` does not manage OCI credentials yet. Chart signing is
-left for a later artifact orchestration phase.
+that OCI repository after GoReleaser succeeds. Set `RELEASE_HELM_OCI_USERNAME`
+with `RELEASE_HELM_OCI_PASSWORD_FILE` or environment-only
+`RELEASE_HELM_OCI_PASSWORD` when `release-tools` should run `helm registry
+login` with a temporary Helm registry config before pushing. Without those auth
+settings, Helm must already be authenticated. Chart signing is left for a later
+artifact orchestration phase.
 
 For the full public config contract, token resolution rules, and consumer setup
 guide, see [`docs/usage.md`](docs/usage.md).

@@ -12,6 +12,7 @@ type Command struct {
 	Name   string
 	Args   []string
 	Env    []string
+	Stdin  io.Reader
 	Stdout io.Writer
 	Stderr io.Writer
 }
@@ -74,6 +75,7 @@ func (c Command) exec() *exec.Cmd {
 	cmd := exec.Command(c.Name, c.Args...)
 	cmd.Dir = c.Dir
 	cmd.Env = c.Env
+	cmd.Stdin = c.Stdin
 	cmd.Stdout = c.Stdout
 	cmd.Stderr = c.Stderr
 	return cmd

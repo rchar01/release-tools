@@ -53,6 +53,8 @@
   - `RELEASE_HELM_VERSION_FROM`
   - `RELEASE_HELM_APP_VERSION_FROM`
   - `RELEASE_HELM_OCI_REPOSITORY`
+  - `RELEASE_HELM_OCI_USERNAME`
+  - `RELEASE_HELM_OCI_PASSWORD_FILE`
   - `RELEASE_NOTES_SOURCE`
   - `RELEASE_NOTES_MODE`
   - `RELEASE_BODY_MODE`
@@ -61,6 +63,7 @@
   - `RELEASE_REQUIRE_GO`
   - `RELEASE_TOKEN_FILE`
   - `RELEASE_TOKEN`
+  - `RELEASE_HELM_OCI_PASSWORD`
   - `VERSION`
 - `.release-tools.env` is the default repo-local config file.
 - Environment variables override `.release-tools.env` values.
@@ -76,7 +79,13 @@
   `charts`.
 - Supported Helm version source values are currently `tag` only.
 - `RELEASE_HELM_OCI_REPOSITORY` enables `helm push` to an OCI repository during
-  `publish` and `publish-tag`; Helm registry authentication is caller-owned.
+  `publish` and `publish-tag`; Helm registry authentication can be caller-owned
+  or configured explicitly with the Helm OCI auth variables.
+- `RELEASE_HELM_OCI_USERNAME` with `RELEASE_HELM_OCI_PASSWORD_FILE` or
+  environment-only `RELEASE_HELM_OCI_PASSWORD` makes the CLI run
+  `helm registry login` with a temporary registry config before OCI pushes.
+- `RELEASE_HELM_OCI_PASSWORD` is environment-only and is intentionally not a
+  supported `.release-tools.env` key.
 
 ## Commands
 - CLI:
@@ -120,6 +129,8 @@
 - `publish` and `publish-tag` package charts before GoReleaser publish starts;
   when `RELEASE_HELM_OCI_REPOSITORY` is set they push packaged charts with
   `helm push` after GoReleaser succeeds.
+- Explicit Helm OCI auth is resolved before GoReleaser publish starts and uses
+  `helm registry login --password-stdin --registry-config <temporary-file>`.
 - `publish-tag` publishes from a clean temporary clone of the exact tag.
 - GoReleaser must run from the release repository root.
 - unset `RELEASE_ARTIFACTS` keeps current binaries-only behavior.

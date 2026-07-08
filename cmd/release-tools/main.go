@@ -24,23 +24,25 @@ import (
 )
 
 var allowedConfigKeys = map[string]bool{
-	"RELEASE_FORGE":                 true,
-	"RELEASE_PROJECT":               true,
-	"RELEASE_OWNER":                 true,
-	"RELEASE_REPO":                  true,
-	"RELEASE_API_URL":               true,
-	"RELEASE_ARTIFACTS":             true,
-	"RELEASE_HELM_CHART_DIRS":       true,
-	"RELEASE_HELM_VERSION_FROM":     true,
-	"RELEASE_HELM_APP_VERSION_FROM": true,
-	"RELEASE_HELM_OCI_REPOSITORY":   true,
-	"RELEASE_NOTES_SOURCE":          true,
-	"RELEASE_NOTES_MODE":            true,
-	"RELEASE_BODY_MODE":             true,
-	"GORELEASER_CONFIG":             true,
-	"GORELEASER_BIN":                true,
-	"RELEASE_REQUIRE_GO":            true,
-	"RELEASE_TOKEN_FILE":            true,
+	"RELEASE_FORGE":                  true,
+	"RELEASE_PROJECT":                true,
+	"RELEASE_OWNER":                  true,
+	"RELEASE_REPO":                   true,
+	"RELEASE_API_URL":                true,
+	"RELEASE_ARTIFACTS":              true,
+	"RELEASE_HELM_CHART_DIRS":        true,
+	"RELEASE_HELM_VERSION_FROM":      true,
+	"RELEASE_HELM_APP_VERSION_FROM":  true,
+	"RELEASE_HELM_OCI_REPOSITORY":    true,
+	"RELEASE_HELM_OCI_USERNAME":      true,
+	"RELEASE_HELM_OCI_PASSWORD_FILE": true,
+	"RELEASE_NOTES_SOURCE":           true,
+	"RELEASE_NOTES_MODE":             true,
+	"RELEASE_BODY_MODE":              true,
+	"GORELEASER_CONFIG":              true,
+	"GORELEASER_BIN":                 true,
+	"RELEASE_REQUIRE_GO":             true,
+	"RELEASE_TOKEN_FILE":             true,
 }
 
 type forgeKind string
@@ -74,6 +76,16 @@ type app struct {
 type fileState struct {
 	size    int64
 	modTime time.Time
+}
+
+type helmOCIAuth struct {
+	username string
+	password string
+}
+
+type helmOCIAuthSession struct {
+	registryConfig string
+	cleanup        func()
 }
 
 func main() {
@@ -744,7 +756,33 @@ func changedHelmPackage(before, after map[string]fileState) (string, error) {
 	return changed[0], nil
 }
 
-func (a *app) runHelmOCIPushes(packages []string) error {
+func (a *app) prepareHelmOCIAuth(auth *helmOCIAuth) (*helmOCIAuthSession, error) {
+	session := &helmOCIAuthSession{cleanup: func() {}}
+	if auth == nil {
+		return session, nil
+	}
+	repository := a.helmOCIRepository()
+	if repository == "" {
+		return session, nil
+	}
+	helmBin, err := a.resolveHelmBin()
+	if err != nil {
+		return nil, err
+	}
+	configPath, cleanup, err := a.helmOCIRegistryConfigPath()
+	if err != nil {
+		return nil, err
+	}
+	if err := a.runHelmOCILogin(helmBin, repository, configPath, auth); err != nil {
+		cleanup()
+		return nil, err
+	}
+	session.registryConfig = configPath
+	session.cleanup = cleanup
+	return session, nil
+}
+
+func (a *app) runHelmOCIPushes(packages []string, session *helmOCIAuthSession) error {
 	if len(packages) == 0 {
 		return nil
 	}
@@ -760,15 +798,43 @@ func (a *app) runHelmOCIPushes(packages []string) error {
 		return err
 	}
 	for _, chartPackage := range packages {
-		if err := a.runHelm(helmBin, "push", chartPackage, repository); err != nil {
+		args := []string{"push", chartPackage, repository}
+		if session != nil && session.registryConfig != "" {
+			args = append(args, "--registry-config", session.registryConfig)
+		}
+		if err := a.runHelm(helmBin, args...); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
+func (a *app) runHelmOCILogin(helmBin, repository, registryConfig string, auth *helmOCIAuth) error {
+	host, err := helmOCIRegistryHost(repository)
+	if err != nil {
+		return err
+	}
+	args := []string{"registry", "login", host, "--username", auth.username, "--password-stdin", "--registry-config", registryConfig}
+	return a.runHelmWithStdin(helmBin, strings.NewReader(auth.password+"\n"), args...)
+}
+
+func (a *app) helmOCIRegistryConfigPath() (string, func(), error) {
+	if err := os.MkdirAll(a.tmpDir, 0o700); err != nil {
+		return "", func() {}, err
+	}
+	dir, err := os.MkdirTemp(a.tmpDir, "helm-registry-")
+	if err != nil {
+		return "", func() {}, err
+	}
+	return filepath.Join(dir, "config.json"), func() { _ = os.RemoveAll(dir) }, nil
+}
+
 func (a *app) runHelm(helmBin string, args ...string) error {
-	cmd := runner.Command{Dir: a.repoRoot, Name: helmBin, Args: args, Stdout: a.stdout, Stderr: a.stderr}
+	return a.runHelmWithStdin(helmBin, nil, args...)
+}
+
+func (a *app) runHelmWithStdin(helmBin string, stdin io.Reader, args ...string) error {
+	cmd := runner.Command{Dir: a.repoRoot, Name: helmBin, Args: args, Stdin: stdin, Stdout: a.stdout, Stderr: a.stderr}
 	return a.commandRunner().Run(cmd)
 }
 
@@ -784,6 +850,10 @@ func (a *app) publish() error {
 	if err := a.validateChartConfig(); err != nil {
 		return err
 	}
+	helmOCIAuth, err := a.resolveHelmOCIAuth()
+	if err != nil {
+		return err
+	}
 	notesFile, err := a.generateNotes(tag)
 	if err != nil {
 		return err
@@ -792,13 +862,18 @@ func (a *app) publish() error {
 	if err != nil {
 		return err
 	}
+	helmOCISession, err := a.prepareHelmOCIAuth(helmOCIAuth)
+	if err != nil {
+		return err
+	}
+	defer helmOCISession.cleanup()
 	if err := a.runGoreleaserWithToken(token, "release", "--clean", "--release-notes", notesFile); err != nil {
 		return err
 	}
 	if err := a.updateReleaseBody(tag, notesFile, token); err != nil {
 		return err
 	}
-	return a.runHelmOCIPushes(packages)
+	return a.runHelmOCIPushes(packages, helmOCISession)
 }
 
 func (a *app) publishTag(tag string) error {
@@ -832,6 +907,10 @@ func (a *app) publishTag(tag string) error {
 	if err := cloneApp.validateChartConfig(); err != nil {
 		return err
 	}
+	helmOCIAuth, err := cloneApp.resolveHelmOCIAuth()
+	if err != nil {
+		return err
+	}
 	notesFile, err := cloneApp.generateNotes(tag)
 	if err != nil {
 		return err
@@ -840,6 +919,11 @@ func (a *app) publishTag(tag string) error {
 	if err != nil {
 		return err
 	}
+	helmOCISession, err := cloneApp.prepareHelmOCIAuth(helmOCIAuth)
+	if err != nil {
+		return err
+	}
+	defer helmOCISession.cleanup()
 
 	a.log("Publishing %s", tag)
 	if err := cloneApp.runGoreleaserWithToken(token, "release", "--clean", "--release-notes", notesFile); err != nil {
@@ -848,7 +932,7 @@ func (a *app) publishTag(tag string) error {
 	if err := cloneApp.updateReleaseBody(tag, notesFile, token); err != nil {
 		return err
 	}
-	if err := cloneApp.runHelmOCIPushes(packages); err != nil {
+	if err := cloneApp.runHelmOCIPushes(packages, helmOCISession); err != nil {
 		return err
 	}
 	a.log("Published %s", tag)
@@ -1227,13 +1311,17 @@ func (a *app) resolveToken() (string, error) {
 }
 
 func readTokenFile(path string) (string, error) {
+	return readSecretFile("RELEASE_TOKEN_FILE", path)
+}
+
+func readSecretFile(label, path string) (string, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return "", fmt.Errorf("failed to read RELEASE_TOKEN_FILE %s: %w", path, err)
+		return "", fmt.Errorf("failed to read %s %s: %w", label, path, err)
 	}
 	token := strings.TrimRight(string(content), "\r\n")
 	if token == "" {
-		return "", fmt.Errorf("RELEASE_TOKEN_FILE is empty: %s", path)
+		return "", fmt.Errorf("%s is empty: %s", label, path)
 	}
 	return token, nil
 }
@@ -1404,6 +1492,9 @@ func (a *app) validateChartConfig() error {
 	if _, err := a.helmOCIRepositoryChecked(); err != nil {
 		return err
 	}
+	if err := a.validateHelmOCIAuthConfig(); err != nil {
+		return err
+	}
 	enabled, err := a.chartsEnabled()
 	if err != nil {
 		return err
@@ -1535,6 +1626,68 @@ func (a *app) helmOCIRepositoryChecked() (string, error) {
 		return "", fmt.Errorf("RELEASE_HELM_OCI_REPOSITORY must be an oci:// repository: %s", repository)
 	}
 	return repository, nil
+}
+
+func helmOCIRegistryHost(repository string) (string, error) {
+	if !strings.HasPrefix(repository, "oci://") {
+		return "", fmt.Errorf("RELEASE_HELM_OCI_REPOSITORY must be an oci:// repository: %s", repository)
+	}
+	rest := strings.TrimPrefix(repository, "oci://")
+	host, _, _ := strings.Cut(rest, "/")
+	if host == "" {
+		return "", fmt.Errorf("RELEASE_HELM_OCI_REPOSITORY must include a registry host: %s", repository)
+	}
+	return host, nil
+}
+
+func (a *app) helmOCIUsername() string {
+	return strings.TrimSpace(a.env["RELEASE_HELM_OCI_USERNAME"])
+}
+
+func (a *app) helmOCIPasswordFile() string {
+	return strings.TrimSpace(a.env["RELEASE_HELM_OCI_PASSWORD_FILE"])
+}
+
+func (a *app) helmOCIPasswordEnv() string {
+	return a.env["RELEASE_HELM_OCI_PASSWORD"]
+}
+
+func (a *app) helmOCIAuthConfigured() bool {
+	return a.helmOCIUsername() != "" || a.helmOCIPasswordEnv() != "" || a.helmOCIPasswordFile() != ""
+}
+
+func (a *app) validateHelmOCIAuthConfig() error {
+	if !a.helmOCIAuthConfigured() {
+		return nil
+	}
+	if a.helmOCIRepository() == "" {
+		return errors.New("RELEASE_HELM_OCI_USERNAME, RELEASE_HELM_OCI_PASSWORD, and RELEASE_HELM_OCI_PASSWORD_FILE require RELEASE_HELM_OCI_REPOSITORY")
+	}
+	if a.helmOCIUsername() == "" {
+		return errors.New("RELEASE_HELM_OCI_USERNAME is required when Helm OCI auth is configured")
+	}
+	if a.helmOCIPasswordEnv() == "" && a.helmOCIPasswordFile() == "" {
+		return errors.New("RELEASE_HELM_OCI_PASSWORD or RELEASE_HELM_OCI_PASSWORD_FILE is required when RELEASE_HELM_OCI_USERNAME is set")
+	}
+	return nil
+}
+
+func (a *app) resolveHelmOCIAuth() (*helmOCIAuth, error) {
+	if !a.helmOCIAuthConfigured() {
+		return nil, nil
+	}
+	if err := a.validateHelmOCIAuthConfig(); err != nil {
+		return nil, err
+	}
+	password := a.helmOCIPasswordEnv()
+	if password == "" {
+		value, err := readSecretFile("RELEASE_HELM_OCI_PASSWORD_FILE", expandTokenFilePath(a.helmOCIPasswordFile()))
+		if err != nil {
+			return nil, err
+		}
+		password = value
+	}
+	return &helmOCIAuth{username: a.helmOCIUsername(), password: password}, nil
 }
 
 func (a *app) helmVersion() (string, error) {

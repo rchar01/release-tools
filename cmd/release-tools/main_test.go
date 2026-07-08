@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -35,6 +36,18 @@ func TestLoadConfigFileKeepsEnvironmentOverride(t *testing.T) {
 func TestLoadConfigFileRejectsUnsupportedKey(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, ".release-tools.env"), []byte("VERSION=v1.2.3\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := newApp([]string{"RELEASE_REPO_ROOT=" + dir}, ioDiscard(), ioDiscard())
+	if err == nil {
+		t.Fatal("expected unsupported key error")
+	}
+}
+
+func TestLoadConfigFileRejectsOCIPlaintextPassword(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".release-tools.env"), []byte("RELEASE_HELM_OCI_PASSWORD=secret\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -454,6 +467,131 @@ func TestPublishPushesHelmChartsToOCIAfterGoreleaser(t *testing.T) {
 	}
 }
 
+func TestPublishLogsIntoHelmOCIWithTemporaryRegistryConfig(t *testing.T) {
+	dir := t.TempDir()
+	writeChart(t, filepath.Join(dir, "charts", "demo"), "demo")
+	writeFile(t, filepath.Join(dir, "NEWS.md"), "# News\n\n## v1.2.3 - 2026-07-02\n\n- release\n")
+	fake := &fakeCommandRunner{}
+	a := &app{
+		repoRoot: dir,
+		tmpDir:   filepath.Join(dir, ".tmp"),
+		env: map[string]string{
+			"VERSION":                     "v1.2.3",
+			"RELEASE_FORGE":               "gitea",
+			"RELEASE_TOKEN":               "token",
+			"RELEASE_ARTIFACTS":           "charts",
+			"RELEASE_HELM_CHART_DIRS":     "charts/demo",
+			"RELEASE_HELM_OCI_REPOSITORY": "oci://registry.example/charts",
+			"RELEASE_HELM_OCI_USERNAME":   "robot",
+			"RELEASE_HELM_OCI_PASSWORD":   "registry-token",
+			"RELEASE_NOTES_MODE":          "news-md",
+			"RELEASE_NOTES_SOURCE":        "NEWS.md",
+			"RELEASE_BODY_MODE":           "none",
+			"GORELEASER_BIN":              "/tools/goreleaser",
+		},
+		commands: fake,
+		stdout:   ioDiscard(),
+		stderr:   ioDiscard(),
+	}
+
+	if err := a.publish(); err != nil {
+		t.Fatal(err)
+	}
+	got := commandStrings(fake.runCommands)
+	if len(got) != 4 {
+		t.Fatalf("commands = %#v, want 4 commands", got)
+	}
+	if got[0] != "/fake/helm package charts/demo --version 1.2.3 --app-version 1.2.3 --destination dist/charts" {
+		t.Fatalf("first command = %q, want helm package", got[0])
+	}
+	login := fake.runCommands[1]
+	if login.Name != "/fake/helm" || strings.Join(login.Args[:7], " ") != "registry login registry.example --username robot --password-stdin --registry-config" {
+		t.Fatalf("login command = %q, want helm registry login", got[1])
+	}
+	registryConfig := login.Args[7]
+	if !strings.HasPrefix(registryConfig, filepath.Join(dir, ".tmp", "helm-registry-")) || filepath.Base(registryConfig) != "config.json" {
+		t.Fatalf("registry config = %q, want unique temp config", registryConfig)
+	}
+	if !strings.HasPrefix(got[2], "/tools/goreleaser --config .goreleaser.yaml release --clean --release-notes ") {
+		t.Fatalf("third command = %q, want goreleaser publish", got[2])
+	}
+	wantPush := "/fake/helm push dist/charts/demo-1.2.3.tgz oci://registry.example/charts --registry-config " + registryConfig
+	if got[3] != wantPush {
+		t.Fatalf("fourth command = %q, want %q", got[3], wantPush)
+	}
+	stdin, err := io.ReadAll(login.Stdin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(stdin) != "registry-token\n" {
+		t.Fatalf("login stdin = %q, want registry token", stdin)
+	}
+	if _, err := os.Stat(filepath.Dir(registryConfig)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("temporary Helm registry config dir was not removed: %v", err)
+	}
+}
+
+func TestResolveHelmOCIAuthReadsPasswordFile(t *testing.T) {
+	passwordFile := filepath.Join(t.TempDir(), "registry-password")
+	writeFile(t, passwordFile, "file-token\n")
+	a := &app{env: map[string]string{
+		"RELEASE_HELM_OCI_REPOSITORY":    "oci://registry.example/charts",
+		"RELEASE_HELM_OCI_USERNAME":      "robot",
+		"RELEASE_HELM_OCI_PASSWORD_FILE": passwordFile,
+	}}
+
+	auth, err := a.resolveHelmOCIAuth()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if auth.username != "robot" || auth.password != "file-token" {
+		t.Fatalf("auth = %#v, want username robot and file token", auth)
+	}
+}
+
+func TestPublishStopsBeforeGoreleaserWhenHelmOCILoginFails(t *testing.T) {
+	dir := t.TempDir()
+	writeChart(t, filepath.Join(dir, "charts", "demo"), "demo")
+	writeFile(t, filepath.Join(dir, "NEWS.md"), "# News\n\n## v1.2.3 - 2026-07-02\n\n- release\n")
+	fake := &fakeCommandRunner{}
+	fake.onRun = func(cmd runner.Command) error {
+		if cmd.Name == "/fake/helm" && len(cmd.Args) > 1 && cmd.Args[0] == "registry" && cmd.Args[1] == "login" {
+			return errors.New("helm login failed")
+		}
+		return nil
+	}
+	a := &app{
+		repoRoot: dir,
+		tmpDir:   filepath.Join(dir, ".tmp"),
+		env: map[string]string{
+			"VERSION":                     "v1.2.3",
+			"RELEASE_FORGE":               "gitea",
+			"RELEASE_TOKEN":               "token",
+			"RELEASE_ARTIFACTS":           "charts",
+			"RELEASE_HELM_CHART_DIRS":     "charts/demo",
+			"RELEASE_HELM_OCI_REPOSITORY": "oci://registry.example/charts",
+			"RELEASE_HELM_OCI_USERNAME":   "robot",
+			"RELEASE_HELM_OCI_PASSWORD":   "registry-token",
+			"RELEASE_NOTES_MODE":          "news-md",
+			"RELEASE_NOTES_SOURCE":        "NEWS.md",
+			"RELEASE_BODY_MODE":           "none",
+			"GORELEASER_BIN":              "/tools/goreleaser",
+		},
+		commands: fake,
+		stdout:   ioDiscard(),
+		stderr:   ioDiscard(),
+	}
+
+	if err := a.publish(); err == nil {
+		t.Fatal("expected helm login error")
+	}
+	for _, cmd := range fake.runCommands {
+		if cmd.Name == "/tools/goreleaser" {
+			t.Fatalf("goreleaser ran after helm login failure: %#v", commandStrings(fake.runCommands))
+		}
+	}
+}
+
 func TestPublishPatchesReleaseBodyBeforeFailingHelmOCIPush(t *testing.T) {
 	dir := t.TempDir()
 	writeChart(t, filepath.Join(dir, "charts", "demo"), "demo")
@@ -770,6 +908,53 @@ func TestPublishTagPatchesReleaseBodyBeforeFailingHelmOCIPush(t *testing.T) {
 	}
 }
 
+func TestPublishTagStopsBeforeGoreleaserWhenHelmOCILoginFails(t *testing.T) {
+	dir := t.TempDir()
+	repo := filepath.Join(dir, "repo")
+	clone := filepath.Join(dir, ".tmp", "release-v1.2.3")
+	fake := &fakeCommandRunner{}
+	fake.onRun = func(cmd runner.Command) error {
+		if cmd.Name == "git" && len(cmd.Args) > 0 && cmd.Args[0] == "clone" {
+			writeChart(t, filepath.Join(clone, "charts", "demo"), "demo")
+			writeFile(t, filepath.Join(clone, "NEWS.md"), "# News\n\n## v1.2.3 - 2026-07-02\n\n- release\n")
+			writeFile(t, filepath.Join(clone, ".goreleaser.yaml"), "version: 2\n")
+		}
+		if cmd.Name == "/fake/helm" && len(cmd.Args) > 1 && cmd.Args[0] == "registry" && cmd.Args[1] == "login" {
+			return errors.New("helm login failed")
+		}
+		return nil
+	}
+	a := &app{
+		repoRoot: repo,
+		tmpDir:   filepath.Join(dir, ".tmp"),
+		env: map[string]string{
+			"RELEASE_FORGE":               "gitea",
+			"RELEASE_TOKEN":               "token",
+			"RELEASE_ARTIFACTS":           "charts",
+			"RELEASE_HELM_CHART_DIRS":     "charts/demo",
+			"RELEASE_HELM_OCI_REPOSITORY": "oci://registry.example/charts",
+			"RELEASE_HELM_OCI_USERNAME":   "robot",
+			"RELEASE_HELM_OCI_PASSWORD":   "registry-token",
+			"RELEASE_NOTES_MODE":          "news-md",
+			"RELEASE_NOTES_SOURCE":        "NEWS.md",
+			"RELEASE_BODY_MODE":           "none",
+			"GORELEASER_BIN":              "/tools/goreleaser",
+		},
+		commands: fake,
+		stdout:   ioDiscard(),
+		stderr:   ioDiscard(),
+	}
+
+	if err := a.publishTag("v1.2.3"); err == nil {
+		t.Fatal("expected helm login error")
+	}
+	for _, cmd := range fake.runCommands {
+		if cmd.Name == "/tools/goreleaser" {
+			t.Fatalf("goreleaser ran after helm login failure: %#v", commandStrings(fake.runCommands))
+		}
+	}
+}
+
 func TestPublishTagStopsBeforeGoreleaserWhenHelmPackageFails(t *testing.T) {
 	dir := t.TempDir()
 	repo := filepath.Join(dir, "repo")
@@ -949,6 +1134,19 @@ func TestValidateChartConfigRejectsInvalidOCIRepository(t *testing.T) {
 		a := &app{env: env}
 		if err := a.validateChartConfig(); err == nil {
 			t.Fatal("expected OCI repository validation error")
+		}
+	}
+}
+
+func TestValidateChartConfigRejectsPartialOCIAuth(t *testing.T) {
+	for _, env := range []map[string]string{
+		{"RELEASE_HELM_OCI_USERNAME": "robot", "RELEASE_HELM_OCI_PASSWORD": "token"},
+		{"RELEASE_HELM_OCI_REPOSITORY": "oci://registry.example/charts", "RELEASE_HELM_OCI_PASSWORD": "token"},
+		{"RELEASE_HELM_OCI_REPOSITORY": "oci://registry.example/charts", "RELEASE_HELM_OCI_USERNAME": "robot"},
+	} {
+		a := &app{env: env}
+		if err := a.validateChartConfig(); err == nil {
+			t.Fatal("expected OCI auth validation error")
 		}
 	}
 }
