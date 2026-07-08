@@ -37,7 +37,7 @@ expect_error() {
 }
 
 rm -rf "$TMP_DIR"
-mkdir -p "$TMP_DIR/no-config" "$TMP_DIR/no-tag" "$TMP_DIR/missing-goreleaser" "$TMP_DIR/missing-news" "$TMP_DIR/invalid-forge"
+mkdir -p "$TMP_DIR/no-config" "$TMP_DIR/no-tag" "$TMP_DIR/missing-goreleaser" "$TMP_DIR/missing-news" "$TMP_DIR/invalid-forge" "$TMP_DIR/invalid-artifacts" "$TMP_DIR/empty-artifacts" "$TMP_DIR/empty-artifact-entry"
 
 cat >"$TMP_DIR/no-tag/.release-tools.env" <<'EOF'
 RELEASE_PROJECT=demo
@@ -68,6 +68,24 @@ RELEASE_FORGE=svn
 RELEASE_OWNER=owner
 EOF
 
+cat >"$TMP_DIR/invalid-artifacts/.release-tools.env" <<'EOF'
+RELEASE_PROJECT=demo
+RELEASE_OWNER=owner
+RELEASE_ARTIFACTS=containers
+EOF
+
+cat >"$TMP_DIR/empty-artifacts/.release-tools.env" <<'EOF'
+RELEASE_PROJECT=demo
+RELEASE_OWNER=owner
+RELEASE_ARTIFACTS=
+EOF
+
+cat >"$TMP_DIR/empty-artifact-entry/.release-tools.env" <<'EOF'
+RELEASE_PROJECT=demo
+RELEASE_OWNER=owner
+RELEASE_ARTIFACTS=binaries,,charts
+EOF
+
 expect_error '[ERROR] RELEASE_PROJECT is required' \
 	env -u RELEASE_PROJECT -u RELEASE_OWNER -u RELEASE_REPO RELEASE_REPO_ROOT="$TMP_DIR/no-config" "$RELEASE_TOOLS_BIN" check
 
@@ -85,6 +103,15 @@ expect_error '[ERROR] release notes source not found:' \
 
 expect_error '[ERROR] unsupported RELEASE_FORGE: svn' \
 	env RELEASE_REPO_ROOT="$TMP_DIR/invalid-forge" GORELEASER_BIN=/bin/true "$RELEASE_TOOLS_BIN" doctor
+
+expect_error '[ERROR] unsupported RELEASE_ARTIFACTS value: containers' \
+	env RELEASE_REPO_ROOT="$TMP_DIR/invalid-artifacts" GORELEASER_BIN=/bin/true "$RELEASE_TOOLS_BIN" doctor
+
+expect_error '[ERROR] RELEASE_ARTIFACTS is empty' \
+	env RELEASE_REPO_ROOT="$TMP_DIR/empty-artifacts" GORELEASER_BIN=/bin/true "$RELEASE_TOOLS_BIN" doctor
+
+expect_error '[ERROR] RELEASE_ARTIFACTS contains an empty entry' \
+	env RELEASE_REPO_ROOT="$TMP_DIR/empty-artifact-entry" GORELEASER_BIN=/bin/true "$RELEASE_TOOLS_BIN" doctor
 
 expect_error '[ERROR] VERSION is required when the current commit is not an exact tag' \
 	env -u VERSION RELEASE_REPO_ROOT="$TMP_DIR/no-tag" "$RELEASE_TOOLS_BIN" notes

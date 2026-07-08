@@ -152,20 +152,20 @@ signing behavior yet.
 
 Tasks:
 
-- [ ] Add strict config support for `RELEASE_ARTIFACTS`.
-- [ ] Support `binaries` and `charts` as initial artifact classes.
-- [ ] Treat unset `RELEASE_ARTIFACTS` as the current binaries-only behavior.
-- [ ] Reject unknown artifact classes with a clear error.
-- [ ] Add helper methods for checking whether charts are enabled.
-- [ ] Update `doctor` output to report enabled artifact classes.
-- [ ] Add tests for default behavior, comma parsing, whitespace handling, and
+- [x] Add strict config support for `RELEASE_ARTIFACTS`.
+- [x] Support `binaries` and `charts` as initial artifact classes.
+- [x] Treat unset `RELEASE_ARTIFACTS` as the current binaries-only behavior.
+- [x] Reject unknown artifact classes with a clear error.
+- [x] Add helper methods for checking whether charts are enabled.
+- [x] Update `doctor` output to report enabled artifact classes.
+- [x] Add tests for default behavior, comma parsing, whitespace handling, and
   invalid values.
 
 Validation gate:
 
-- [ ] `go test ./cmd/release-tools`
-- [ ] `scripts/test-errors`
-- [ ] `make verify`
+- [x] `go test ./cmd/release-tools`
+- [x] `scripts/test-errors`
+- [x] `make verify`
 
 Decision point: Confirm whether container image detection belongs in this config
 or remains a GoReleaser preflight concern.
@@ -401,6 +401,7 @@ Validation gate:
 | --- | --- | --- |
 | 2026-07-08 | Plan created for artifact orchestration. | User requested a durable implementation plan. |
 | 2026-07-08 | Phase 1 refactor implemented. | Added `internal/config` and injectable `internal/runner`; seam-focused tests passed; verification subagent reported `go test ./...`, `scripts/test-errors`, and `make verify` passed. |
+| 2026-07-08 | Phase 2 artifact config implemented. | Added `RELEASE_ARTIFACTS` parsing, `chartsEnabled`, `doctor` reporting, focused artifact/doctor tests, and `scripts/test-errors` coverage. Verification subagent reported `go test ./...`, `scripts/test-errors`, and `make verify` passed. |
 
 ## Decision Log
 

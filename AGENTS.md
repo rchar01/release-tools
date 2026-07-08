@@ -48,6 +48,7 @@
   - `RELEASE_OWNER`
   - `RELEASE_REPO`
   - `RELEASE_API_URL`
+  - `RELEASE_ARTIFACTS`
   - `RELEASE_NOTES_SOURCE`
   - `RELEASE_NOTES_MODE`
   - `RELEASE_BODY_MODE`
@@ -65,6 +66,8 @@
   `GITLAB_TOKEN` internally for GoReleaser based on `RELEASE_FORGE`.
 - Supported `RELEASE_FORGE` values are `codeberg`, `gitea`, `forgejo`,
   `github`, and `gitlab`.
+- `RELEASE_ARTIFACTS` defaults to `binaries`; supported values are `binaries`
+  and `charts`.
 
 ## Commands
 - CLI:
@@ -104,6 +107,7 @@
 - `release-tools snapshot` runs `goreleaser release --snapshot --skip=publish --clean`.
 - `publish-tag` publishes from a clean temporary clone of the exact tag.
 - GoReleaser must run from the release repository root.
+- unset `RELEASE_ARTIFACTS` keeps current binaries-only behavior.
 - `check` and `snapshot` paths must not require `RELEASE_TOKEN`.
 - CLI release notes currently support `RELEASE_NOTES_MODE=news-md`, `gnu-news`,
   and `none`.

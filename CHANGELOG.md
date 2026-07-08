@@ -7,6 +7,11 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- added `RELEASE_ARTIFACTS` config parsing and `doctor` reporting for artifact
+  classes, defaulting to `binaries` and accepting `binaries` and `charts`
+
 ## [3.3.0] - 2026-07-02
 
 ### Added

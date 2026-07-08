@@ -125,6 +125,18 @@ Reason:
 - clean tag publishing can pass current config into the temporary tag clone
 - release config lives in one small committed file
 
+### Artifact Classes Are Explicit
+
+`RELEASE_ARTIFACTS` records which release artifact classes a repository intends
+to use. If unset, the CLI keeps the existing binaries-only behavior. Supported
+values are currently `binaries` and `charts`.
+
+Reason:
+
+- binaries-only repositories do not need new config
+- chart-aware repositories can opt in before chart-specific config is added
+- `doctor` can report the intended release shape early
+
 ### Go Preflight Is Optional
 
 The Go CLI requires GoReleaser and only requires a project Go toolchain when

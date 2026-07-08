@@ -229,6 +229,79 @@ func TestDoctorAcceptsGNUNewsMode(t *testing.T) {
 	}
 }
 
+func TestReleaseArtifactsDefaultToBinaries(t *testing.T) {
+	a := &app{env: map[string]string{}}
+	artifacts, err := a.releaseArtifacts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(artifacts, ","); got != "binaries" {
+		t.Fatalf("artifacts = %q, want binaries", got)
+	}
+	enabled, err := a.chartsEnabled()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if enabled {
+		t.Fatal("charts should not be enabled by default")
+	}
+}
+
+func TestReleaseArtifactsParseCommaWhitespaceAndDeduplicate(t *testing.T) {
+	a := &app{env: map[string]string{"RELEASE_ARTIFACTS": " charts, binaries , charts "}}
+	artifacts, err := a.releaseArtifacts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(artifacts, ","); got != "charts,binaries" {
+		t.Fatalf("artifacts = %q, want charts,binaries", got)
+	}
+	enabled, err := a.chartsEnabled()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !enabled {
+		t.Fatal("charts should be enabled")
+	}
+}
+
+func TestReleaseArtifactsRejectInvalidValues(t *testing.T) {
+	for _, value := range []string{"containers", "binaries,,charts", "", "   "} {
+		t.Run(value, func(t *testing.T) {
+			a := &app{env: map[string]string{"RELEASE_ARTIFACTS": value}}
+			if _, err := a.releaseArtifacts(); err == nil {
+				t.Fatal("expected artifact parsing error")
+			}
+		})
+	}
+}
+
+func TestDoctorReportsArtifacts(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".goreleaser.yaml"), "version: 2\n")
+	var stdout bytes.Buffer
+	a := &app{
+		repoRoot: dir,
+		env: map[string]string{
+			"RELEASE_PROJECT":    "demo",
+			"RELEASE_OWNER":      "owner",
+			"RELEASE_ARTIFACTS":  "binaries, charts",
+			"RELEASE_NOTES_MODE": "none",
+			"RELEASE_BODY_MODE":  "none",
+			"GORELEASER_BIN":     "/tools/goreleaser",
+		},
+		commands: &fakeCommandRunner{combinedOutput: []byte("GitVersion: v2.16.0\n")},
+		stdout:   &stdout,
+		stderr:   ioDiscard(),
+	}
+	if err := a.doctor(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "[INFO] Artifacts: binaries, charts\n") {
+		t.Fatalf("doctor output = %q, want artifact line", stdout.String())
+	}
+}
+
 func TestOptionalVersionArgumentRejectsTooManyArgs(t *testing.T) {
 	a := &app{env: map[string]string{}}
 	_, err := a.optionalVersionArg("notes", []string{"v1.0.0", "v1.0.1"})

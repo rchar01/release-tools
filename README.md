@@ -169,6 +169,9 @@ Supported release notes modes:
   `* Noteworthy changes in release X.Y.Z (YYYY-MM-DD)` headings
 - `none`: disable generated release notes
 
+Supported artifact classes are configured with `RELEASE_ARTIFACTS`. If unset,
+the CLI uses `binaries`; supported values are `binaries` and `charts`.
+
 For the full public config contract, token resolution rules, and consumer setup
 guide, see [`docs/usage.md`](docs/usage.md).
 

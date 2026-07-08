@@ -97,6 +97,7 @@ Supported `.release-tools.env` keys:
 - `RELEASE_OWNER`
 - `RELEASE_REPO`
 - `RELEASE_API_URL`
+- `RELEASE_ARTIFACTS`
 - `RELEASE_NOTES_SOURCE`
 - `RELEASE_NOTES_MODE`
 - `RELEASE_BODY_MODE`
@@ -115,6 +116,19 @@ Supported environment-only variables:
 
 Environment variables override `.release-tools.env` values. Set
 `RELEASE_CONFIG_FILE` to load a different config file.
+
+Artifact classes are configured with `RELEASE_ARTIFACTS`:
+
+```sh
+RELEASE_ARTIFACTS=binaries
+RELEASE_ARTIFACTS=binaries,charts
+```
+
+If unset, `release-tools` keeps the existing binaries-only behavior. Supported
+values are `binaries` and `charts`. The `doctor` command validates and reports
+the configured artifact classes. `RELEASE_ARTIFACTS=charts` currently records
+chart release intent; Helm-aware command behavior is planned for later chart
+configuration work.
 
 Required for release commands:
 

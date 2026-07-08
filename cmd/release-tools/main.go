@@ -27,6 +27,7 @@ var allowedConfigKeys = map[string]bool{
 	"RELEASE_OWNER":        true,
 	"RELEASE_REPO":         true,
 	"RELEASE_API_URL":      true,
+	"RELEASE_ARTIFACTS":    true,
 	"RELEASE_NOTES_SOURCE": true,
 	"RELEASE_NOTES_MODE":   true,
 	"RELEASE_BODY_MODE":    true,
@@ -46,6 +47,9 @@ const (
 	forgeGitea  forgeKind = "gitea"
 	forgeGitHub forgeKind = "github"
 	forgeGitLab forgeKind = "gitlab"
+
+	artifactBinaries = "binaries"
+	artifactCharts   = "charts"
 )
 
 type app struct {
@@ -419,6 +423,10 @@ func (a *app) doctor() error {
 	notesSource := a.releaseNotesSource()
 	notesMode := a.releaseNotesMode()
 	bodyMode := a.releaseBodyMode()
+	artifacts, err := a.releaseArtifacts()
+	if err != nil {
+		return err
+	}
 	if _, err := a.releaseForge(); err != nil {
 		return err
 	}
@@ -469,6 +477,7 @@ func (a *app) doctor() error {
 	a.log("GoReleaser config: %s", config)
 	a.log("GoReleaser binary: %s", goreleaserBin)
 	a.log("GoReleaser version: %s", goreleaserVersion)
+	a.log("Artifacts: %s", strings.Join(artifacts, ", "))
 	a.log("Release notes mode: %s", notesMode)
 	a.log("Release body mode: %s", bodyMode)
 	a.log("release-tools configuration looks valid")
@@ -1112,6 +1121,46 @@ func (a *app) releaseBodyMode() string {
 
 func (a *app) goreleaserConfig() string {
 	return envValue(a.env, "GORELEASER_CONFIG", ".goreleaser.yaml")
+}
+
+func (a *app) releaseArtifacts() ([]string, error) {
+	raw, ok := a.env["RELEASE_ARTIFACTS"]
+	if !ok {
+		raw = artifactBinaries
+	} else if strings.TrimSpace(raw) == "" {
+		return nil, errors.New("RELEASE_ARTIFACTS is empty")
+	}
+	seen := map[string]bool{}
+	artifacts := []string{}
+	for _, entry := range strings.Split(raw, ",") {
+		artifact := strings.TrimSpace(entry)
+		if artifact == "" {
+			return nil, errors.New("RELEASE_ARTIFACTS contains an empty entry")
+		}
+		switch artifact {
+		case artifactBinaries, artifactCharts:
+		default:
+			return nil, fmt.Errorf("unsupported RELEASE_ARTIFACTS value: %s", artifact)
+		}
+		if !seen[artifact] {
+			artifacts = append(artifacts, artifact)
+			seen[artifact] = true
+		}
+	}
+	return artifacts, nil
+}
+
+func (a *app) chartsEnabled() (bool, error) {
+	artifacts, err := a.releaseArtifacts()
+	if err != nil {
+		return false, err
+	}
+	for _, artifact := range artifacts {
+		if artifact == artifactCharts {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (a *app) log(format string, args ...any) {
