@@ -142,7 +142,9 @@ Reason:
 When `RELEASE_ARTIFACTS` includes `charts`, the CLI validates chart directories
 and invokes Helm for local chart work. `check` runs Helm dependency and lint
 checks. `snapshot` packages charts into `dist/charts` using the release tag as
-the chart and app version source.
+the chart and app version source. Publish commands package charts before
+GoReleaser publishes release assets, but they do not upload charts to a chart
+repository yet.
 
 Reason:
 
@@ -173,6 +175,10 @@ When charts are enabled, it also runs Helm dependency and lint checks.
 `release-tools snapshot` runs `goreleaser release --snapshot --skip=publish --clean`.
 When charts are enabled, it also packages charts into `dist/charts`.
 
+`release-tools publish` and `release-tools publish-tag` package charts before
+GoReleaser publish starts. `publish-tag` performs that package step inside the
+clean temporary tag clone.
+
 Reason:
 
 - `check` is a fast config validation path
@@ -180,6 +186,8 @@ Reason:
 - neither command requires a publish token
 - chart-enabled snapshot builds need `VERSION` or an exact current tag so Helm
   chart versions can be derived from the tag
+- chart-enabled publish commands fail before GoReleaser publish if local chart
+  packaging fails
 
 ## What To Watch Out For
 

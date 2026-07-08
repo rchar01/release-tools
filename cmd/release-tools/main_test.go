@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -364,6 +365,193 @@ func TestSnapshotPackagesHelmCharts(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "dist", "charts")); err != nil {
 		t.Fatalf("dist/charts was not created: %v", err)
+	}
+}
+
+func TestPublishPackagesHelmChartsBeforeGoreleaser(t *testing.T) {
+	dir := t.TempDir()
+	writeChart(t, filepath.Join(dir, "charts", "demo"), "demo")
+	writeFile(t, filepath.Join(dir, "NEWS.md"), "# News\n\n## v1.2.3 - 2026-07-02\n\n- release\n")
+	fake := &fakeCommandRunner{}
+	a := &app{
+		repoRoot: dir,
+		tmpDir:   filepath.Join(dir, ".tmp"),
+		env: map[string]string{
+			"VERSION":                 "v1.2.3",
+			"RELEASE_FORGE":           "gitea",
+			"RELEASE_TOKEN":           "token",
+			"RELEASE_ARTIFACTS":       "charts",
+			"RELEASE_HELM_CHART_DIRS": "charts/demo",
+			"RELEASE_NOTES_MODE":      "news-md",
+			"RELEASE_NOTES_SOURCE":    "NEWS.md",
+			"RELEASE_BODY_MODE":       "none",
+			"GORELEASER_BIN":          "/tools/goreleaser",
+		},
+		commands: fake,
+		stdout:   ioDiscard(),
+		stderr:   ioDiscard(),
+	}
+
+	if err := a.publish(); err != nil {
+		t.Fatal(err)
+	}
+	got := commandStrings(fake.runCommands)
+	if len(got) != 2 {
+		t.Fatalf("commands = %#v, want 2 commands", got)
+	}
+	if got[0] != "/fake/helm package charts/demo --version 1.2.3 --app-version 1.2.3 --destination dist/charts" {
+		t.Fatalf("first command = %q, want helm package", got[0])
+	}
+	if !strings.HasPrefix(got[1], "/tools/goreleaser --config .goreleaser.yaml release --clean --release-notes ") {
+		t.Fatalf("second command = %q, want goreleaser publish", got[1])
+	}
+}
+
+func TestPublishStopsBeforeGoreleaserWhenHelmPackageFails(t *testing.T) {
+	dir := t.TempDir()
+	writeChart(t, filepath.Join(dir, "charts", "demo"), "demo")
+	writeFile(t, filepath.Join(dir, "NEWS.md"), "# News\n\n## v1.2.3 - 2026-07-02\n\n- release\n")
+	fake := &fakeCommandRunner{}
+	fake.onRun = func(cmd runner.Command) error {
+		if cmd.Name == "/fake/helm" && len(cmd.Args) > 0 && cmd.Args[0] == "package" {
+			return errors.New("helm package failed")
+		}
+		return nil
+	}
+	a := &app{
+		repoRoot: dir,
+		tmpDir:   filepath.Join(dir, ".tmp"),
+		env: map[string]string{
+			"VERSION":                 "v1.2.3",
+			"RELEASE_FORGE":           "gitea",
+			"RELEASE_TOKEN":           "token",
+			"RELEASE_ARTIFACTS":       "charts",
+			"RELEASE_HELM_CHART_DIRS": "charts/demo",
+			"RELEASE_NOTES_MODE":      "news-md",
+			"RELEASE_NOTES_SOURCE":    "NEWS.md",
+			"RELEASE_BODY_MODE":       "none",
+			"GORELEASER_BIN":          "/tools/goreleaser",
+		},
+		commands: fake,
+		stdout:   ioDiscard(),
+		stderr:   ioDiscard(),
+	}
+
+	if err := a.publish(); err == nil {
+		t.Fatal("expected helm package error")
+	}
+	for _, cmd := range fake.runCommands {
+		if cmd.Name == "/tools/goreleaser" {
+			t.Fatalf("goreleaser ran after helm package failure: %#v", commandStrings(fake.runCommands))
+		}
+	}
+}
+
+func TestPublishTagPackagesHelmChartsFromClone(t *testing.T) {
+	dir := t.TempDir()
+	repo := filepath.Join(dir, "repo")
+	clone := filepath.Join(dir, ".tmp", "release-v1.2.3")
+	fake := &fakeCommandRunner{}
+	fake.onRun = func(cmd runner.Command) error {
+		if cmd.Name == "git" && len(cmd.Args) > 0 && cmd.Args[0] == "clone" {
+			writeChart(t, filepath.Join(clone, "charts", "demo"), "demo")
+			writeFile(t, filepath.Join(clone, "NEWS.md"), "# News\n\n## v1.2.3 - 2026-07-02\n\n- release\n")
+			writeFile(t, filepath.Join(clone, ".goreleaser.yaml"), "version: 2\n")
+		}
+		return nil
+	}
+	a := &app{
+		repoRoot: repo,
+		tmpDir:   filepath.Join(dir, ".tmp"),
+		env: map[string]string{
+			"RELEASE_FORGE":           "gitea",
+			"RELEASE_TOKEN":           "token",
+			"RELEASE_ARTIFACTS":       "charts",
+			"RELEASE_HELM_CHART_DIRS": "charts/demo",
+			"RELEASE_NOTES_MODE":      "news-md",
+			"RELEASE_NOTES_SOURCE":    "NEWS.md",
+			"RELEASE_BODY_MODE":       "none",
+			"GORELEASER_BIN":          "/tools/goreleaser",
+		},
+		commands: fake,
+		stdout:   ioDiscard(),
+		stderr:   ioDiscard(),
+	}
+
+	if err := a.publishTag("v1.2.3"); err != nil {
+		t.Fatal(err)
+	}
+	var helmPackage, goreleaserPublish *runner.Command
+	helmIndex, goreleaserIndex := -1, -1
+	for i := range fake.runCommands {
+		cmd := &fake.runCommands[i]
+		if cmd.Name == "/fake/helm" && len(cmd.Args) > 0 && cmd.Args[0] == "package" {
+			helmPackage = cmd
+			helmIndex = i
+		}
+		if cmd.Name == "/tools/goreleaser" {
+			goreleaserPublish = cmd
+			goreleaserIndex = i
+		}
+	}
+	if helmPackage == nil {
+		t.Fatalf("commands = %#v, want helm package", commandStrings(fake.runCommands))
+	}
+	if helmPackage.Dir != clone {
+		t.Fatalf("helm package dir = %q, want clone %q", helmPackage.Dir, clone)
+	}
+	if goreleaserPublish == nil {
+		t.Fatalf("commands = %#v, want goreleaser publish", commandStrings(fake.runCommands))
+	}
+	if goreleaserPublish.Dir != clone {
+		t.Fatalf("goreleaser dir = %q, want clone %q", goreleaserPublish.Dir, clone)
+	}
+	if helmIndex > goreleaserIndex {
+		t.Fatalf("helm package command ran after goreleaser: %#v", commandStrings(fake.runCommands))
+	}
+}
+
+func TestPublishTagStopsBeforeGoreleaserWhenHelmPackageFails(t *testing.T) {
+	dir := t.TempDir()
+	repo := filepath.Join(dir, "repo")
+	clone := filepath.Join(dir, ".tmp", "release-v1.2.3")
+	fake := &fakeCommandRunner{}
+	fake.onRun = func(cmd runner.Command) error {
+		if cmd.Name == "git" && len(cmd.Args) > 0 && cmd.Args[0] == "clone" {
+			writeChart(t, filepath.Join(clone, "charts", "demo"), "demo")
+			writeFile(t, filepath.Join(clone, "NEWS.md"), "# News\n\n## v1.2.3 - 2026-07-02\n\n- release\n")
+			writeFile(t, filepath.Join(clone, ".goreleaser.yaml"), "version: 2\n")
+		}
+		if cmd.Name == "/fake/helm" && len(cmd.Args) > 0 && cmd.Args[0] == "package" {
+			return errors.New("helm package failed")
+		}
+		return nil
+	}
+	a := &app{
+		repoRoot: repo,
+		tmpDir:   filepath.Join(dir, ".tmp"),
+		env: map[string]string{
+			"RELEASE_FORGE":           "gitea",
+			"RELEASE_TOKEN":           "token",
+			"RELEASE_ARTIFACTS":       "charts",
+			"RELEASE_HELM_CHART_DIRS": "charts/demo",
+			"RELEASE_NOTES_MODE":      "news-md",
+			"RELEASE_NOTES_SOURCE":    "NEWS.md",
+			"RELEASE_BODY_MODE":       "none",
+			"GORELEASER_BIN":          "/tools/goreleaser",
+		},
+		commands: fake,
+		stdout:   ioDiscard(),
+		stderr:   ioDiscard(),
+	}
+
+	if err := a.publishTag("v1.2.3"); err == nil {
+		t.Fatal("expected helm package error")
+	}
+	for _, cmd := range fake.runCommands {
+		if cmd.Name == "/tools/goreleaser" {
+			t.Fatalf("goreleaser ran after helm package failure: %#v", commandStrings(fake.runCommands))
+		}
 	}
 }
 
@@ -976,10 +1164,14 @@ type fakeCommandRunner struct {
 	combinedOutputCommands []runner.Command
 	output                 []byte
 	combinedOutput         []byte
+	onRun                  func(runner.Command) error
 }
 
 func (f *fakeCommandRunner) Run(cmd runner.Command) error {
 	f.runCommands = append(f.runCommands, cmd)
+	if f.onRun != nil {
+		return f.onRun(cmd)
+	}
 	return nil
 }
 

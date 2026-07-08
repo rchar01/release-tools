@@ -151,8 +151,11 @@ Chart-enabled commands add local Helm behavior:
   `helm lint` for each chart after `goreleaser check`
 - `release-tools snapshot` runs the GoReleaser snapshot and packages charts into
   `dist/charts`
+- `release-tools publish` and `release-tools publish-tag` package charts before
+  GoReleaser publishes release assets
 
-Chart publishing and signing are not part of this local chart milestone.
+Uploading charts to a chart repository and signing charts are not part of this
+local chart milestone.
 Snapshot chart packaging needs `VERSION` or an exact current tag so the chart
 version can be derived from the release tag.
 

@@ -698,8 +698,14 @@ func (a *app) publish() error {
 	if err != nil {
 		return err
 	}
+	if err := a.validateChartConfig(); err != nil {
+		return err
+	}
 	notesFile, err := a.generateNotes(tag)
 	if err != nil {
+		return err
+	}
+	if err := a.runHelmPackages(chartVersionFromTag(tag)); err != nil {
 		return err
 	}
 	if err := a.runGoreleaserWithToken(token, "release", "--clean", "--release-notes", notesFile); err != nil {
@@ -736,8 +742,14 @@ func (a *app) publishTag(tag string) error {
 	if err != nil {
 		return err
 	}
+	if err := cloneApp.validateChartConfig(); err != nil {
+		return err
+	}
 	notesFile, err := cloneApp.generateNotes(tag)
 	if err != nil {
+		return err
+	}
+	if err := cloneApp.runHelmPackages(chartVersionFromTag(tag)); err != nil {
 		return err
 	}
 
@@ -1421,11 +1433,15 @@ func (a *app) helmVersion() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	version := strings.TrimPrefix(tag, "v")
+	version := chartVersionFromTag(tag)
 	if version == "" {
 		return "", fmt.Errorf("release tag does not contain a Helm version: %s", tag)
 	}
 	return version, nil
+}
+
+func chartVersionFromTag(tag string) string {
+	return strings.TrimPrefix(tag, "v")
 }
 
 func (a *app) log(format string, args ...any) {

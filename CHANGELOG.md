@@ -14,6 +14,8 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - added local Helm chart validation for chart-enabled repositories, including
   chart directory checks, `helm dependency update --skip-refresh`, `helm lint`,
   and `helm package` into `dist/charts` during snapshots
+- added chart packaging before GoReleaser starts `publish` and `publish-tag`,
+  with `publish-tag` packaging charts from the clean temporary tag clone
 
 ## [3.3.0] - 2026-07-02
 

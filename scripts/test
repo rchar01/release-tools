@@ -62,11 +62,13 @@ mkdir -p "$stub_bin" "$chart_test_dir/charts/demo"
 cat >"$stub_bin/goreleaser" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+printf 'goreleaser-pwd %s\n' "$PWD" >>"$GORELEASER_LOG"
 printf 'goreleaser %s\n' "$*" >>"$GORELEASER_LOG"
 EOF
 cat >"$stub_bin/helm" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+printf 'helm-pwd %s\n' "$PWD" >>"$HELM_LOG"
 printf 'helm %s\n' "$*" >>"$HELM_LOG"
 if [[ "${1:-}" == package ]]; then
   chart="${2:?missing chart}"
@@ -94,15 +96,29 @@ apiVersion: v2
 name: demo
 version: 0.0.0
 EOF
+cat >"$chart_test_dir/NEWS.md" <<'EOF'
+# News
+
+## v1.2.3 - 2026-07-02
+
+- test chart publish sequencing
+EOF
 cat >"$chart_test_dir/.release-tools.env" <<EOF
 RELEASE_PROJECT=demo
 RELEASE_OWNER=owner
 RELEASE_ARTIFACTS=charts
 RELEASE_HELM_CHART_DIRS=charts/demo
-RELEASE_NOTES_MODE=none
+RELEASE_NOTES_MODE=news-md
+RELEASE_NOTES_SOURCE=NEWS.md
 RELEASE_BODY_MODE=none
 GORELEASER_BIN=$stub_bin/goreleaser
 EOF
+git -C "$chart_test_dir" init --quiet
+git -C "$chart_test_dir" config user.email test@example.invalid
+git -C "$chart_test_dir" config user.name 'Test User'
+git -C "$chart_test_dir" add .goreleaser.yaml .release-tools.env NEWS.md charts/demo/Chart.yaml
+git -C "$chart_test_dir" commit --quiet -m 'chart release fixture'
+git -C "$chart_test_dir" tag v1.2.3
 HELM_LOG="$chart_test_dir/helm.log" \
   GORELEASER_LOG="$chart_test_dir/goreleaser.log" \
   PATH="$stub_bin:$PATH" \
@@ -118,6 +134,26 @@ HELM_LOG="$chart_test_dir/helm.log" \
   .tmp/release-tools-test snapshot >/dev/null
 grep -q 'helm package charts/demo --version 1.2.3 --app-version 1.2.3 --destination dist/charts' "$chart_test_dir/helm.log"
 test -f "$chart_test_dir/dist/charts/demo-1.2.3.tgz"
+rm -f "$chart_test_dir/helm.log" "$chart_test_dir/goreleaser.log"
+HELM_LOG="$chart_test_dir/helm.log" \
+  GORELEASER_LOG="$chart_test_dir/goreleaser.log" \
+  PATH="$stub_bin:$PATH" \
+  RELEASE_REPO_ROOT="$chart_test_dir" \
+  RELEASE_TOKEN=token \
+  VERSION=v1.2.3 \
+  .tmp/release-tools-test publish >/dev/null
+grep -q 'helm package charts/demo --version 1.2.3 --app-version 1.2.3 --destination dist/charts' "$chart_test_dir/helm.log"
+grep -q 'goreleaser --config .goreleaser.yaml release --clean --release-notes' "$chart_test_dir/goreleaser.log"
+rm -f "$chart_test_dir/helm.log" "$chart_test_dir/goreleaser.log"
+HELM_LOG="$chart_test_dir/helm.log" \
+  GORELEASER_LOG="$chart_test_dir/goreleaser.log" \
+  PATH="$stub_bin:$PATH" \
+  RELEASE_REPO_ROOT="$chart_test_dir" \
+  RELEASE_TOKEN=token \
+  .tmp/release-tools-test publish-tag v1.2.3 >/dev/null
+grep -q 'helm package charts/demo --version 1.2.3 --app-version 1.2.3 --destination dist/charts' "$chart_test_dir/helm.log"
+grep -q "helm-pwd $chart_test_dir/.tmp/release-v1.2.3" "$chart_test_dir/helm.log"
+grep -q "goreleaser-pwd $chart_test_dir/.tmp/release-v1.2.3" "$chart_test_dir/goreleaser.log"
 rm -rf "$chart_test_dir"
 
 rm -f .tmp/release-tools-test

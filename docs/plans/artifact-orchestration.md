@@ -211,21 +211,21 @@ remote chart upload backend is added.
 
 Tasks:
 
-- [ ] Package charts before GoReleaser publish starts.
-- [ ] Ensure `publish-tag` packages charts from the clean tag clone, not the
+- [x] Package charts before GoReleaser publish starts.
+- [x] Ensure `publish-tag` packages charts from the clean tag clone, not the
   caller's worktree.
-- [ ] Ensure chart output goes to the tag clone's `dist/charts` or equivalent
+- [x] Ensure chart output goes to the tag clone's `dist/charts` or equivalent
   release-local directory.
-- [ ] Fail before GoReleaser publish if chart validation or packaging fails.
-- [ ] Add tests proving chart commands run in the expected order.
-- [ ] Add tests proving `publish-tag` uses clone-local chart paths.
+- [x] Fail before GoReleaser publish if chart validation or packaging fails.
+- [x] Add tests proving chart commands run in the expected order.
+- [x] Add tests proving `publish-tag` uses clone-local chart paths.
 
 Validation gate:
 
-- [ ] `go test ./cmd/release-tools`
-- [ ] `scripts/test-errors`
-- [ ] `make verify`
-- [ ] `make container-test`
+- [x] `go test ./cmd/release-tools`
+- [x] `scripts/test-errors`
+- [x] `make verify`
+- [x] `make container-test`
 
 Decision point: Choose the first remote chart publishing target.
 
@@ -403,6 +403,7 @@ Validation gate:
 | 2026-07-08 | Phase 1 refactor implemented. | Added `internal/config` and injectable `internal/runner`; seam-focused tests passed; verification subagent reported `go test ./...`, `scripts/test-errors`, and `make verify` passed. |
 | 2026-07-08 | Phase 2 artifact config implemented. | Added `RELEASE_ARTIFACTS` parsing, `chartsEnabled`, `doctor` reporting, focused artifact/doctor tests, and `scripts/test-errors` coverage. Verification subagent reported `go test ./...`, `scripts/test-errors`, and `make verify` passed. |
 | 2026-07-08 | Phase 3 local Helm behavior implemented. | Added Helm chart config, local check/package commands, dev-container Helm install, unit tests, `scripts/test-errors`, and stub Helm/GoReleaser integration coverage in `scripts/test`; chart paths are constrained inside the repo including symlink targets; `make verify` and `make container-test` passed. |
+| 2026-07-08 | Phase 4 publish sequencing implemented. | Added chart packaging before GoReleaser publish and publish-tag, clone-local packaging tests, failure-ordering coverage, and stub publish coverage in `scripts/test`; `make container-test` passed. |
 
 ## Decision Log
 

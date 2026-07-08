@@ -114,6 +114,8 @@
 - `release-tools snapshot` runs `goreleaser release --snapshot --skip=publish
   --clean`; when charts are enabled it also runs `helm package` into
   `dist/charts`.
+- `publish` and `publish-tag` package charts before GoReleaser publish starts;
+  remote chart upload is not implemented yet.
 - `publish-tag` publishes from a clean temporary clone of the exact tag.
 - GoReleaser must run from the release repository root.
 - unset `RELEASE_ARTIFACTS` keeps current binaries-only behavior.
