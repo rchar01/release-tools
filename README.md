@@ -184,6 +184,14 @@ login` with a temporary Helm registry config before pushing. Without those auth
 settings, Helm must already be authenticated. Chart signing is left for a later
 artifact orchestration phase.
 
+For Forgejo/Gitea classic Helm package registries, set
+`RELEASE_HELM_CLASSIC_URL` to the Helm package base URL, such as
+`https://forge.example/api/packages/myowner/helm`. Do not include credentials,
+query strings, fragments, or the `/api/charts` upload suffix. Configure
+`RELEASE_HELM_CLASSIC_USERNAME` with `RELEASE_HELM_CLASSIC_TOKEN_FILE` or
+environment-only `RELEASE_HELM_CLASSIC_TOKEN`. Publish commands upload packaged
+charts to `<url>/api/charts` with Basic auth after GoReleaser succeeds.
+
 For the full public config contract, token resolution rules, and consumer setup
 guide, see [`docs/usage.md`](docs/usage.md).
 

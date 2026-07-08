@@ -146,7 +146,9 @@ and app version source. Publish commands package charts before GoReleaser
 publishes release assets. If `RELEASE_HELM_OCI_REPOSITORY` is set, publish
 commands push packaged charts to that OCI repository after GoReleaser succeeds.
 When explicit OCI auth is configured, the CLI logs in with Helm using a
-temporary registry config before pushing charts.
+temporary registry config before pushing charts. If `RELEASE_HELM_CLASSIC_URL`
+is set, publish commands upload packaged charts to a Forgejo/Gitea-compatible
+classic Helm package registry after GoReleaser succeeds.
 
 Reason:
 
@@ -157,6 +159,11 @@ Reason:
   `--password-stdin`
 - plaintext OCI passwords are environment-only; committed config should use a
   password file path instead
+- classic Forgejo/Gitea package uploads use the package API rather than a Helm
+  plugin
+- classic package uploads use documented Basic auth with a username plus an
+  environment-only or file-backed token; auth is resolved before GoReleaser
+  starts
 - chart signing can be added without changing the command surface
 
 ### Go Preflight Is Optional
@@ -184,8 +191,9 @@ When charts are enabled, it also packages charts into `dist/charts`.
 `release-tools publish` and `release-tools publish-tag` package charts before
 GoReleaser publish starts. `publish-tag` performs that package step inside the
 clean temporary tag clone. When OCI chart publishing is configured, they push
-the packaged charts after GoReleaser succeeds. Missing or unreadable explicit
-OCI auth is resolved before GoReleaser starts.
+the packaged charts after GoReleaser succeeds. When classic Helm publishing is
+configured, they upload the packaged charts after GoReleaser succeeds. Missing
+or unreadable explicit chart publish auth is resolved before GoReleaser starts.
 
 Reason:
 

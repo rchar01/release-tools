@@ -55,6 +55,9 @@
   - `RELEASE_HELM_OCI_REPOSITORY`
   - `RELEASE_HELM_OCI_USERNAME`
   - `RELEASE_HELM_OCI_PASSWORD_FILE`
+  - `RELEASE_HELM_CLASSIC_URL`
+  - `RELEASE_HELM_CLASSIC_USERNAME`
+  - `RELEASE_HELM_CLASSIC_TOKEN_FILE`
   - `RELEASE_NOTES_SOURCE`
   - `RELEASE_NOTES_MODE`
   - `RELEASE_BODY_MODE`
@@ -64,6 +67,7 @@
   - `RELEASE_TOKEN_FILE`
   - `RELEASE_TOKEN`
   - `RELEASE_HELM_OCI_PASSWORD`
+  - `RELEASE_HELM_CLASSIC_TOKEN`
   - `VERSION`
 - `.release-tools.env` is the default repo-local config file.
 - Environment variables override `.release-tools.env` values.
@@ -85,6 +89,13 @@
   environment-only `RELEASE_HELM_OCI_PASSWORD` makes the CLI run
   `helm registry login` with a temporary registry config before OCI pushes.
 - `RELEASE_HELM_OCI_PASSWORD` is environment-only and is intentionally not a
+  supported `.release-tools.env` key.
+- `RELEASE_HELM_CLASSIC_URL` enables raw Helm chart upload to a Forgejo/Gitea
+  classic Helm package registry during `publish` and `publish-tag`.
+- `RELEASE_HELM_CLASSIC_USERNAME` with `RELEASE_HELM_CLASSIC_TOKEN_FILE` or
+  environment-only `RELEASE_HELM_CLASSIC_TOKEN` provides documented Basic auth
+  for the classic Helm package registry.
+- `RELEASE_HELM_CLASSIC_TOKEN` is environment-only and is intentionally not a
   supported `.release-tools.env` key.
 
 ## Commands
@@ -131,6 +142,8 @@
   `helm push` after GoReleaser succeeds.
 - Explicit Helm OCI auth is resolved before GoReleaser publish starts and uses
   `helm registry login --password-stdin --registry-config <temporary-file>`.
+- When `RELEASE_HELM_CLASSIC_URL` is set, `publish` and `publish-tag` upload
+  packaged charts to `<url>/api/charts` after GoReleaser succeeds.
 - `publish-tag` publishes from a clean temporary clone of the exact tag.
 - GoReleaser must run from the release repository root.
 - unset `RELEASE_ARTIFACTS` keeps current binaries-only behavior.

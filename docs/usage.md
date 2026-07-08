@@ -104,6 +104,9 @@ Supported `.release-tools.env` keys:
 - `RELEASE_HELM_OCI_REPOSITORY`
 - `RELEASE_HELM_OCI_USERNAME`
 - `RELEASE_HELM_OCI_PASSWORD_FILE`
+- `RELEASE_HELM_CLASSIC_URL`
+- `RELEASE_HELM_CLASSIC_USERNAME`
+- `RELEASE_HELM_CLASSIC_TOKEN_FILE`
 - `RELEASE_NOTES_SOURCE`
 - `RELEASE_NOTES_MODE`
 - `RELEASE_BODY_MODE`
@@ -119,6 +122,7 @@ Supported environment-only variables:
 - native GoReleaser token variables: `GITEA_TOKEN`, `GITHUB_TOKEN`, or
   `GITLAB_TOKEN`
 - `RELEASE_HELM_OCI_PASSWORD`
+- `RELEASE_HELM_CLASSIC_TOKEN`
 - `VERSION`
 
 Environment variables override `.release-tools.env` values. Set
@@ -146,6 +150,9 @@ RELEASE_HELM_APP_VERSION_FROM=tag
 # RELEASE_HELM_OCI_REPOSITORY=oci://registry.example.com/myowner/charts
 # RELEASE_HELM_OCI_USERNAME=robot
 # RELEASE_HELM_OCI_PASSWORD_FILE=~/.config/helm/oci-token
+# RELEASE_HELM_CLASSIC_URL=https://forge.example/api/packages/myowner/helm
+# RELEASE_HELM_CLASSIC_USERNAME=robot
+# RELEASE_HELM_CLASSIC_TOKEN_FILE=~/.config/forgejo/helm-token
 ```
 
 Only `tag` is currently supported for Helm chart and app versions. A release tag
@@ -163,6 +170,8 @@ Chart-enabled commands add local Helm behavior:
 - when `RELEASE_HELM_OCI_REPOSITORY` is set, `publish` and `publish-tag` run
   `helm push <chart>.tgz oci://...` for each packaged chart after GoReleaser
   succeeds
+- when `RELEASE_HELM_CLASSIC_URL` is set, `publish` and `publish-tag` upload
+  each packaged chart to `<url>/api/charts` after GoReleaser succeeds
 
 Snapshot chart packaging needs `VERSION` or an exact current tag so the chart
 version can be derived from the release tag.
@@ -178,6 +187,19 @@ publishing to a private registry. If `RELEASE_HELM_OCI_USERNAME` is set with
 temporary registry config for `helm push`. Plaintext
 `RELEASE_HELM_OCI_PASSWORD` is intentionally not accepted in `.release-tools.env`.
 Chart signing is not implemented yet.
+
+`RELEASE_HELM_CLASSIC_URL` is for Forgejo/Gitea-compatible classic Helm package
+registries. Set it to the Helm package base URL, for example
+`https://forge.example/api/packages/myowner/helm`. Do not include credentials,
+query strings, fragments, or the `/api/charts` upload suffix in this URL.
+`release-tools` uploads each packaged chart with a raw `POST` to
+`<url>/api/charts` using Basic auth. Set
+`RELEASE_HELM_CLASSIC_USERNAME` and provide the package token or password with
+`RELEASE_HELM_CLASSIC_TOKEN_FILE` or environment-only
+`RELEASE_HELM_CLASSIC_TOKEN`. Plaintext `RELEASE_HELM_CLASSIC_TOKEN` is
+intentionally not accepted in `.release-tools.env`. If the package registry
+rejects a duplicate chart version, `release-tools` fails the upload rather than
+overwriting it.
 
 Required for release commands:
 

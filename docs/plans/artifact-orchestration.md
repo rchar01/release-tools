@@ -91,8 +91,8 @@ RELEASE_HELM_OCI_REPOSITORY=oci://codeberg.org/myowner/charts
 RELEASE_HELM_OCI_USERNAME=robot
 RELEASE_HELM_OCI_PASSWORD_FILE=~/.config/registry/token
 
-RELEASE_HELM_CLASSIC_MODE=none
 RELEASE_HELM_CLASSIC_URL=https://codeberg.org/api/packages/myowner/helm
+RELEASE_HELM_CLASSIC_USERNAME=robot
 RELEASE_HELM_CLASSIC_TOKEN_FILE=~/.config/forgejo/helm-token
 
 RELEASE_HELM_PROVENANCE=false
@@ -255,12 +255,14 @@ Candidate A: Helm OCI registry.
 
 Candidate B: Forgejo/Gitea classic Helm package registry.
 
-- [ ] Add `RELEASE_HELM_CLASSIC_MODE=forgejo` or `gitea` after naming is decided.
-- [ ] Add `RELEASE_HELM_CLASSIC_URL`.
-- [ ] Add `RELEASE_HELM_CLASSIC_TOKEN_FILE`.
-- [ ] Implement upload using the documented package API or a supported Helm
+- [x] Use `RELEASE_HELM_CLASSIC_URL` as the opt-in switch.
+- [x] Add `RELEASE_HELM_CLASSIC_URL`.
+- [x] Add `RELEASE_HELM_CLASSIC_USERNAME`,
+  `RELEASE_HELM_CLASSIC_TOKEN_FILE`, and environment-only
+  `RELEASE_HELM_CLASSIC_TOKEN`.
+- [x] Implement upload using the documented package API or a supported Helm
   plugin only after confirming exact behavior.
-- [ ] Define behavior when a chart version already exists.
+- [x] Define behavior when a chart version already exists.
 - [ ] Prototype against the intended real registry before documenting support as
   stable.
 
@@ -411,6 +413,7 @@ Validation gate:
 | 2026-07-08 | Phase 4 publish sequencing implemented. | Added chart packaging before GoReleaser publish and publish-tag, clone-local packaging tests, failure-ordering coverage, and stub publish coverage in `scripts/test`; `make container-test` passed. |
 | 2026-07-08 | Phase 5 OCI backend started. | Added `RELEASE_HELM_OCI_REPOSITORY`, `helm push` after successful GoReleaser publish, unit ordering coverage, and stub publish coverage; real-registry prototype still pending. |
 | 2026-07-08 | Phase 5 explicit OCI auth implemented. | Added `helm registry login` with `--password-stdin` and temporary registry config when explicit OCI auth is configured; pre-authenticated Helm remains supported when auth config is omitted. |
+| 2026-07-08 | Phase 5 classic Helm backend implemented. | Added Forgejo/Gitea-compatible raw chart uploads to `<url>/api/charts` with explicit package token config; real-registry prototype still pending. |
 
 ## Decision Log
 
@@ -423,3 +426,4 @@ Validation gate:
 | 2026-07-08 | Keep pre-authenticated Helm supported when explicit OCI auth config is omitted. | Preserves the simple Helm-native path for callers that already manage registry login. |
 | 2026-07-08 | Treat existing OCI chart versions as registry-owned errors. | Helm docs do not document overwrite semantics or a force flag, so `release-tools` fails on `helm push` errors rather than trying to overwrite. |
 | 2026-07-08 | Support explicit OCI auth without accepting plaintext passwords in `.release-tools.env`. | Keeps committed config free of registry secrets while allowing CI to provide environment-only credentials. |
+| 2026-07-08 | Use `RELEASE_HELM_CLASSIC_URL` as the classic Helm opt-in switch. | Avoids an extra mode key while the implemented classic backend is specifically Forgejo/Gitea-compatible. |

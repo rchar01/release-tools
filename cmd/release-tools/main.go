@@ -24,25 +24,28 @@ import (
 )
 
 var allowedConfigKeys = map[string]bool{
-	"RELEASE_FORGE":                  true,
-	"RELEASE_PROJECT":                true,
-	"RELEASE_OWNER":                  true,
-	"RELEASE_REPO":                   true,
-	"RELEASE_API_URL":                true,
-	"RELEASE_ARTIFACTS":              true,
-	"RELEASE_HELM_CHART_DIRS":        true,
-	"RELEASE_HELM_VERSION_FROM":      true,
-	"RELEASE_HELM_APP_VERSION_FROM":  true,
-	"RELEASE_HELM_OCI_REPOSITORY":    true,
-	"RELEASE_HELM_OCI_USERNAME":      true,
-	"RELEASE_HELM_OCI_PASSWORD_FILE": true,
-	"RELEASE_NOTES_SOURCE":           true,
-	"RELEASE_NOTES_MODE":             true,
-	"RELEASE_BODY_MODE":              true,
-	"GORELEASER_CONFIG":              true,
-	"GORELEASER_BIN":                 true,
-	"RELEASE_REQUIRE_GO":             true,
-	"RELEASE_TOKEN_FILE":             true,
+	"RELEASE_FORGE":                   true,
+	"RELEASE_PROJECT":                 true,
+	"RELEASE_OWNER":                   true,
+	"RELEASE_REPO":                    true,
+	"RELEASE_API_URL":                 true,
+	"RELEASE_ARTIFACTS":               true,
+	"RELEASE_HELM_CHART_DIRS":         true,
+	"RELEASE_HELM_VERSION_FROM":       true,
+	"RELEASE_HELM_APP_VERSION_FROM":   true,
+	"RELEASE_HELM_OCI_REPOSITORY":     true,
+	"RELEASE_HELM_OCI_USERNAME":       true,
+	"RELEASE_HELM_OCI_PASSWORD_FILE":  true,
+	"RELEASE_HELM_CLASSIC_URL":        true,
+	"RELEASE_HELM_CLASSIC_USERNAME":   true,
+	"RELEASE_HELM_CLASSIC_TOKEN_FILE": true,
+	"RELEASE_NOTES_SOURCE":            true,
+	"RELEASE_NOTES_MODE":              true,
+	"RELEASE_BODY_MODE":               true,
+	"GORELEASER_CONFIG":               true,
+	"GORELEASER_BIN":                  true,
+	"RELEASE_REQUIRE_GO":              true,
+	"RELEASE_TOKEN_FILE":              true,
 }
 
 type forgeKind string
@@ -86,6 +89,11 @@ type helmOCIAuth struct {
 type helmOCIAuthSession struct {
 	registryConfig string
 	cleanup        func()
+}
+
+type helmClassicAuth struct {
+	username string
+	token    string
 }
 
 func main() {
@@ -550,6 +558,9 @@ func (a *app) doctor() error {
 		if repository := a.helmOCIRepository(); repository != "" {
 			a.log("Helm OCI repository: %s", repository)
 		}
+		if classicURL := a.helmClassicURL(); classicURL != "" {
+			a.log("Helm classic URL: %s", classicURL)
+		}
 	}
 	a.log("Release notes mode: %s", notesMode)
 	a.log("Release body mode: %s", bodyMode)
@@ -642,7 +653,7 @@ func (a *app) runGoreleaser(args ...string) error {
 		return err
 	}
 	cmdArgs := append([]string{"--config", a.goreleaserConfig()}, args...)
-	cmd := runner.Command{Dir: a.repoRoot, Name: goreleaserBin, Args: cmdArgs, Env: a.environ(), Stdout: a.stdout, Stderr: a.stderr}
+	cmd := runner.Command{Dir: a.repoRoot, Name: goreleaserBin, Args: cmdArgs, Env: a.goreleaserEnviron(), Stdout: a.stdout, Stderr: a.stderr}
 	if token, ok := a.resolveOptionalToken(); ok {
 		cmd.Env = append(cmd.Env, a.goreleaserTokenEnv()+"="+token)
 	}
@@ -829,6 +840,48 @@ func (a *app) helmOCIRegistryConfigPath() (string, func(), error) {
 	return filepath.Join(dir, "config.json"), func() { _ = os.RemoveAll(dir) }, nil
 }
 
+func (a *app) runHelmClassicUploads(packages []string, auth *helmClassicAuth) error {
+	classicURL := a.helmClassicURL()
+	if len(packages) == 0 || classicURL == "" {
+		return nil
+	}
+	if auth == nil {
+		return errors.New("RELEASE_HELM_CLASSIC_USERNAME with RELEASE_HELM_CLASSIC_TOKEN or RELEASE_HELM_CLASSIC_TOKEN_FILE is required when RELEASE_HELM_CLASSIC_URL is set")
+	}
+	uploadURL, err := helmClassicUploadURL(classicURL)
+	if err != nil {
+		return err
+	}
+	for _, chartPackage := range packages {
+		if err := a.uploadHelmClassicPackage(uploadURL, chartPackage, auth); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a *app) uploadHelmClassicPackage(uploadURL, chartPackage string, auth *helmClassicAuth) error {
+	content, err := os.ReadFile(filepath.Join(a.repoRoot, chartPackage))
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest(http.MethodPost, uploadURL, bytes.NewReader(content))
+	if err != nil {
+		return err
+	}
+	req.SetBasicAuth(auth.username, auth.token)
+	req.Header.Set("Content-Type", "application/gzip")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("failed to upload Helm chart %s: %s", chartPackage, resp.Status)
+	}
+	return nil
+}
+
 func (a *app) runHelm(helmBin string, args ...string) error {
 	return a.runHelmWithStdin(helmBin, nil, args...)
 }
@@ -854,6 +907,10 @@ func (a *app) publish() error {
 	if err != nil {
 		return err
 	}
+	helmClassicAuth, err := a.resolveHelmClassicAuth()
+	if err != nil {
+		return err
+	}
 	notesFile, err := a.generateNotes(tag)
 	if err != nil {
 		return err
@@ -873,7 +930,10 @@ func (a *app) publish() error {
 	if err := a.updateReleaseBody(tag, notesFile, token); err != nil {
 		return err
 	}
-	return a.runHelmOCIPushes(packages, helmOCISession)
+	if err := a.runHelmOCIPushes(packages, helmOCISession); err != nil {
+		return err
+	}
+	return a.runHelmClassicUploads(packages, helmClassicAuth)
 }
 
 func (a *app) publishTag(tag string) error {
@@ -911,6 +971,10 @@ func (a *app) publishTag(tag string) error {
 	if err != nil {
 		return err
 	}
+	helmClassicAuth, err := cloneApp.resolveHelmClassicAuth()
+	if err != nil {
+		return err
+	}
 	notesFile, err := cloneApp.generateNotes(tag)
 	if err != nil {
 		return err
@@ -933,6 +997,9 @@ func (a *app) publishTag(tag string) error {
 		return err
 	}
 	if err := cloneApp.runHelmOCIPushes(packages, helmOCISession); err != nil {
+		return err
+	}
+	if err := cloneApp.runHelmClassicUploads(packages, helmClassicAuth); err != nil {
 		return err
 	}
 	a.log("Published %s", tag)
@@ -971,7 +1038,7 @@ func (a *app) runGoreleaserWithToken(token string, args ...string) error {
 		Dir:    a.repoRoot,
 		Name:   goreleaserBin,
 		Args:   cmdArgs,
-		Env:    append(a.environ(), a.goreleaserTokenEnv()+"="+token),
+		Env:    append(a.goreleaserEnviron(), a.goreleaserTokenEnv()+"="+token),
 		Stdout: a.stdout,
 		Stderr: a.stderr,
 	}
@@ -979,12 +1046,26 @@ func (a *app) runGoreleaserWithToken(token string, args ...string) error {
 }
 
 func (a *app) environ() []string {
+	return a.environExcept(nil)
+}
+
+func (a *app) goreleaserEnviron() []string {
+	return a.environExcept(map[string]bool{
+		"RELEASE_HELM_OCI_PASSWORD":  true,
+		"RELEASE_HELM_CLASSIC_TOKEN": true,
+	})
+}
+
+func (a *app) environExcept(exclude map[string]bool) []string {
 	merged := config.EnvironMap(os.Environ())
 	for key, value := range a.env {
 		merged[key] = value
 	}
 	out := make([]string, 0, len(merged))
 	for key, value := range merged {
+		if exclude != nil && exclude[key] {
+			continue
+		}
 		out = append(out, key+"="+value)
 	}
 	return out
@@ -1495,12 +1576,18 @@ func (a *app) validateChartConfig() error {
 	if err := a.validateHelmOCIAuthConfig(); err != nil {
 		return err
 	}
+	if err := a.validateHelmClassicConfig(); err != nil {
+		return err
+	}
 	enabled, err := a.chartsEnabled()
 	if err != nil {
 		return err
 	}
 	if !enabled && a.helmOCIRepository() != "" {
 		return errors.New("RELEASE_HELM_OCI_REPOSITORY requires RELEASE_ARTIFACTS to include charts")
+	}
+	if !enabled && a.helmClassicURL() != "" {
+		return errors.New("RELEASE_HELM_CLASSIC_URL requires RELEASE_ARTIFACTS to include charts")
 	}
 	if !enabled {
 		return nil
@@ -1688,6 +1775,82 @@ func (a *app) resolveHelmOCIAuth() (*helmOCIAuth, error) {
 		password = value
 	}
 	return &helmOCIAuth{username: a.helmOCIUsername(), password: password}, nil
+}
+
+func (a *app) helmClassicURL() string {
+	return strings.TrimRight(strings.TrimSpace(a.env["RELEASE_HELM_CLASSIC_URL"]), "/")
+}
+
+func (a *app) helmClassicUsername() string {
+	return strings.TrimSpace(a.env["RELEASE_HELM_CLASSIC_USERNAME"])
+}
+
+func (a *app) helmClassicTokenFile() string {
+	return strings.TrimSpace(a.env["RELEASE_HELM_CLASSIC_TOKEN_FILE"])
+}
+
+func (a *app) helmClassicTokenEnv() string {
+	return a.env["RELEASE_HELM_CLASSIC_TOKEN"]
+}
+
+func (a *app) helmClassicAuthConfigured() bool {
+	return a.helmClassicUsername() != "" || a.helmClassicTokenEnv() != "" || a.helmClassicTokenFile() != ""
+}
+
+func (a *app) validateHelmClassicConfig() error {
+	classicURL := a.helmClassicURL()
+	if classicURL == "" {
+		if a.helmClassicAuthConfigured() {
+			return errors.New("RELEASE_HELM_CLASSIC_TOKEN and RELEASE_HELM_CLASSIC_TOKEN_FILE require RELEASE_HELM_CLASSIC_URL")
+		}
+		return nil
+	}
+	parsed, err := url.Parse(classicURL)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return fmt.Errorf("RELEASE_HELM_CLASSIC_URL must be an http:// or https:// URL: %s", classicURL)
+	}
+	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return fmt.Errorf("RELEASE_HELM_CLASSIC_URL must not include credentials, query, or fragment: %s", classicURL)
+	}
+	if strings.HasSuffix(strings.TrimRight(parsed.Path, "/"), "/api/charts") {
+		return fmt.Errorf("RELEASE_HELM_CLASSIC_URL must be the Helm package base URL, not the upload endpoint: %s", classicURL)
+	}
+	if a.helmClassicAuthConfigured() && a.helmClassicUsername() == "" {
+		return errors.New("RELEASE_HELM_CLASSIC_USERNAME is required when Helm classic auth is configured")
+	}
+	return nil
+}
+
+func helmClassicUploadURL(classicURL string) (string, error) {
+	parsed, err := url.Parse(classicURL)
+	if err != nil {
+		return "", err
+	}
+	parsed.Path = strings.TrimRight(parsed.Path, "/") + "/api/charts"
+	parsed.RawPath = ""
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	return parsed.String(), nil
+}
+
+func (a *app) resolveHelmClassicAuth() (*helmClassicAuth, error) {
+	if a.helmClassicURL() == "" {
+		return nil, nil
+	}
+	if a.helmClassicUsername() == "" {
+		return nil, errors.New("RELEASE_HELM_CLASSIC_USERNAME is required when RELEASE_HELM_CLASSIC_URL is set")
+	}
+	if token := a.helmClassicTokenEnv(); token != "" {
+		return &helmClassicAuth{username: a.helmClassicUsername(), token: token}, nil
+	}
+	if tokenFile := a.helmClassicTokenFile(); tokenFile != "" {
+		token, err := readSecretFile("RELEASE_HELM_CLASSIC_TOKEN_FILE", expandTokenFilePath(tokenFile))
+		if err != nil {
+			return nil, err
+		}
+		return &helmClassicAuth{username: a.helmClassicUsername(), token: token}, nil
+	}
+	return nil, errors.New("RELEASE_HELM_CLASSIC_TOKEN or RELEASE_HELM_CLASSIC_TOKEN_FILE is required when RELEASE_HELM_CLASSIC_URL is set")
 }
 
 func (a *app) helmVersion() (string, error) {

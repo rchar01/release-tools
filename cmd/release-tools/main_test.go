@@ -57,6 +57,18 @@ func TestLoadConfigFileRejectsOCIPlaintextPassword(t *testing.T) {
 	}
 }
 
+func TestLoadConfigFileRejectsClassicPlaintextToken(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".release-tools.env"), []byte("RELEASE_HELM_CLASSIC_TOKEN=secret\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := newApp([]string{"RELEASE_REPO_ROOT=" + dir}, ioDiscard(), ioDiscard())
+	if err == nil {
+		t.Fatal("expected unsupported key error")
+	}
+}
+
 func TestExtractNewsSection(t *testing.T) {
 	content := `# News
 
@@ -303,6 +315,7 @@ func TestDoctorReportsArtifacts(t *testing.T) {
 			"RELEASE_ARTIFACTS":           "binaries, charts",
 			"RELEASE_HELM_CHART_DIRS":     "charts/demo",
 			"RELEASE_HELM_OCI_REPOSITORY": "oci://registry.example/charts",
+			"RELEASE_HELM_CLASSIC_URL":    "https://forge.example/api/packages/owner/helm",
 			"RELEASE_NOTES_MODE":          "none",
 			"RELEASE_BODY_MODE":           "none",
 			"GORELEASER_BIN":              "/tools/goreleaser",
@@ -322,6 +335,9 @@ func TestDoctorReportsArtifacts(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "[INFO] Helm OCI repository: oci://registry.example/charts\n") {
 		t.Fatalf("doctor output = %q, want OCI repository line", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "[INFO] Helm classic URL: https://forge.example/api/packages/owner/helm\n") {
+		t.Fatalf("doctor output = %q, want classic URL line", stdout.String())
 	}
 }
 
@@ -549,6 +565,24 @@ func TestResolveHelmOCIAuthReadsPasswordFile(t *testing.T) {
 	}
 }
 
+func TestResolveHelmClassicAuthReadsTokenFile(t *testing.T) {
+	tokenFile := filepath.Join(t.TempDir(), "classic-token")
+	writeFile(t, tokenFile, "file-token\n")
+	a := &app{env: map[string]string{
+		"RELEASE_HELM_CLASSIC_URL":        "https://forge.example/api/packages/owner/helm",
+		"RELEASE_HELM_CLASSIC_USERNAME":   "robot",
+		"RELEASE_HELM_CLASSIC_TOKEN_FILE": tokenFile,
+	}}
+
+	auth, err := a.resolveHelmClassicAuth()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if auth.username != "robot" || auth.token != "file-token" {
+		t.Fatalf("auth = %#v, want username robot and file-token", auth)
+	}
+}
+
 func TestPublishStopsBeforeGoreleaserWhenHelmOCILoginFails(t *testing.T) {
 	dir := t.TempDir()
 	writeChart(t, filepath.Join(dir, "charts", "demo"), "demo")
@@ -588,6 +622,101 @@ func TestPublishStopsBeforeGoreleaserWhenHelmOCILoginFails(t *testing.T) {
 	for _, cmd := range fake.runCommands {
 		if cmd.Name == "/tools/goreleaser" {
 			t.Fatalf("goreleaser ran after helm login failure: %#v", commandStrings(fake.runCommands))
+		}
+	}
+}
+
+func TestPublishUploadsHelmChartsToClassicRegistry(t *testing.T) {
+	dir := t.TempDir()
+	writeChart(t, filepath.Join(dir, "charts", "demo"), "demo")
+	writeFile(t, filepath.Join(dir, "NEWS.md"), "# News\n\n## v1.2.3 - 2026-07-02\n\n- release\n")
+	uploaded := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/packages/owner/helm/api/charts" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.String())
+		}
+		username, password, ok := r.BasicAuth()
+		if !ok || username != "robot" || password != "classic-token" {
+			t.Fatalf("BasicAuth = %q/%q/%v, want robot classic-token", username, password, ok)
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(body) != "chart" {
+			t.Fatalf("body = %q, want raw chart package", body)
+		}
+		uploaded = true
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer server.Close()
+	fake := &fakeCommandRunner{}
+	a := &app{
+		repoRoot: dir,
+		tmpDir:   filepath.Join(dir, ".tmp"),
+		env: map[string]string{
+			"VERSION":                       "v1.2.3",
+			"RELEASE_FORGE":                 "gitea",
+			"RELEASE_TOKEN":                 "token",
+			"RELEASE_ARTIFACTS":             "charts",
+			"RELEASE_HELM_CHART_DIRS":       "charts/demo",
+			"RELEASE_HELM_CLASSIC_URL":      server.URL + "/api/packages/owner/helm",
+			"RELEASE_HELM_CLASSIC_USERNAME": "robot",
+			"RELEASE_HELM_CLASSIC_TOKEN":    "classic-token",
+			"RELEASE_NOTES_MODE":            "news-md",
+			"RELEASE_NOTES_SOURCE":          "NEWS.md",
+			"RELEASE_BODY_MODE":             "none",
+			"GORELEASER_BIN":                "/tools/goreleaser",
+		},
+		commands: fake,
+		stdout:   ioDiscard(),
+		stderr:   ioDiscard(),
+	}
+
+	if err := a.publish(); err != nil {
+		t.Fatal(err)
+	}
+	if !uploaded {
+		t.Fatal("classic Helm chart was not uploaded")
+	}
+	got := commandStrings(fake.runCommands)
+	if len(got) != 2 || !strings.HasPrefix(got[1], "/tools/goreleaser --config .goreleaser.yaml release --clean --release-notes ") {
+		t.Fatalf("commands = %#v, want package then goreleaser", got)
+	}
+}
+
+func TestPublishStopsBeforeGoreleaserWhenClassicTokenMissing(t *testing.T) {
+	dir := t.TempDir()
+	writeChart(t, filepath.Join(dir, "charts", "demo"), "demo")
+	writeFile(t, filepath.Join(dir, "NEWS.md"), "# News\n\n## v1.2.3 - 2026-07-02\n\n- release\n")
+	fake := &fakeCommandRunner{}
+	a := &app{
+		repoRoot: dir,
+		tmpDir:   filepath.Join(dir, ".tmp"),
+		env: map[string]string{
+			"VERSION":                       "v1.2.3",
+			"RELEASE_FORGE":                 "gitea",
+			"RELEASE_TOKEN":                 "token",
+			"RELEASE_ARTIFACTS":             "charts",
+			"RELEASE_HELM_CHART_DIRS":       "charts/demo",
+			"RELEASE_HELM_CLASSIC_URL":      "https://forge.example/api/packages/owner/helm",
+			"RELEASE_HELM_CLASSIC_USERNAME": "robot",
+			"RELEASE_NOTES_MODE":            "news-md",
+			"RELEASE_NOTES_SOURCE":          "NEWS.md",
+			"RELEASE_BODY_MODE":             "none",
+			"GORELEASER_BIN":                "/tools/goreleaser",
+		},
+		commands: fake,
+		stdout:   ioDiscard(),
+		stderr:   ioDiscard(),
+	}
+
+	if err := a.publish(); err == nil {
+		t.Fatal("expected missing classic token error")
+	}
+	for _, cmd := range fake.runCommands {
+		if cmd.Name == "/tools/goreleaser" {
+			t.Fatalf("goreleaser ran after classic token failure: %#v", commandStrings(fake.runCommands))
 		}
 	}
 }
@@ -955,6 +1084,68 @@ func TestPublishTagStopsBeforeGoreleaserWhenHelmOCILoginFails(t *testing.T) {
 	}
 }
 
+func TestPublishTagUploadsHelmChartsToClassicRegistryFromClone(t *testing.T) {
+	dir := t.TempDir()
+	repo := filepath.Join(dir, "repo")
+	clone := filepath.Join(dir, ".tmp", "release-v1.2.3")
+	uploaded := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/packages/owner/helm/api/charts" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.String())
+		}
+		username, password, ok := r.BasicAuth()
+		if !ok || username != "robot" || password != "classic-token" {
+			t.Fatalf("BasicAuth = %q/%q/%v, want robot classic-token", username, password, ok)
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(body) != "chart" {
+			t.Fatalf("body = %q, want clone chart package", body)
+		}
+		uploaded = true
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer server.Close()
+	fake := &fakeCommandRunner{}
+	fake.onRun = func(cmd runner.Command) error {
+		if cmd.Name == "git" && len(cmd.Args) > 0 && cmd.Args[0] == "clone" {
+			writeChart(t, filepath.Join(clone, "charts", "demo"), "demo")
+			writeFile(t, filepath.Join(clone, "NEWS.md"), "# News\n\n## v1.2.3 - 2026-07-02\n\n- release\n")
+			writeFile(t, filepath.Join(clone, ".goreleaser.yaml"), "version: 2\n")
+		}
+		return nil
+	}
+	a := &app{
+		repoRoot: repo,
+		tmpDir:   filepath.Join(dir, ".tmp"),
+		env: map[string]string{
+			"RELEASE_FORGE":                 "gitea",
+			"RELEASE_TOKEN":                 "token",
+			"RELEASE_ARTIFACTS":             "charts",
+			"RELEASE_HELM_CHART_DIRS":       "charts/demo",
+			"RELEASE_HELM_CLASSIC_URL":      server.URL + "/api/packages/owner/helm",
+			"RELEASE_HELM_CLASSIC_USERNAME": "robot",
+			"RELEASE_HELM_CLASSIC_TOKEN":    "classic-token",
+			"RELEASE_NOTES_MODE":            "news-md",
+			"RELEASE_NOTES_SOURCE":          "NEWS.md",
+			"RELEASE_BODY_MODE":             "none",
+			"GORELEASER_BIN":                "/tools/goreleaser",
+		},
+		commands: fake,
+		stdout:   ioDiscard(),
+		stderr:   ioDiscard(),
+	}
+
+	if err := a.publishTag("v1.2.3"); err != nil {
+		t.Fatal(err)
+	}
+	if !uploaded {
+		t.Fatal("classic Helm chart was not uploaded")
+	}
+}
+
 func TestPublishTagStopsBeforeGoreleaserWhenHelmPackageFails(t *testing.T) {
 	dir := t.TempDir()
 	repo := filepath.Join(dir, "repo")
@@ -1151,6 +1342,35 @@ func TestValidateChartConfigRejectsPartialOCIAuth(t *testing.T) {
 	}
 }
 
+func TestValidateChartConfigRejectsInvalidClassicConfig(t *testing.T) {
+	for _, env := range []map[string]string{
+		{"RELEASE_HELM_CLASSIC_TOKEN": "token"},
+		{"RELEASE_HELM_CLASSIC_URL": "https://forge.example/api/packages/owner/helm", "RELEASE_HELM_CLASSIC_TOKEN": "token"},
+		{"RELEASE_HELM_CLASSIC_URL": "oci://registry.example/charts"},
+		{"RELEASE_HELM_CLASSIC_URL": "https://robot:secret@forge.example/api/packages/owner/helm"},
+		{"RELEASE_HELM_CLASSIC_URL": "https://forge.example/api/packages/owner/helm?token=secret"},
+		{"RELEASE_HELM_CLASSIC_URL": "https://forge.example/api/packages/owner/helm#secret"},
+		{"RELEASE_HELM_CLASSIC_URL": "https://forge.example/api/packages/owner/helm/api/charts"},
+		{"RELEASE_ARTIFACTS": "binaries", "RELEASE_HELM_CLASSIC_URL": "https://forge.example/api/packages/owner/helm"},
+	} {
+		a := &app{env: env}
+		if err := a.validateChartConfig(); err == nil {
+			t.Fatal("expected classic Helm validation error")
+		}
+	}
+}
+
+func TestHelmClassicUploadURLAppendsAPICharts(t *testing.T) {
+	got, err := helmClassicUploadURL("https://forge.example/api/packages/owner/helm/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "https://forge.example/api/packages/owner/helm/api/charts"
+	if got != want {
+		t.Fatalf("upload URL = %q, want %q", got, want)
+	}
+}
+
 func TestOptionalVersionArgumentRejectsTooManyArgs(t *testing.T) {
 	a := &app{env: map[string]string{}}
 	_, err := a.optionalVersionArg("notes", []string{"v1.0.0", "v1.0.1"})
@@ -1263,10 +1483,12 @@ func TestRunGoreleaserUsesInjectedRunner(t *testing.T) {
 	a := &app{
 		repoRoot: "/repo",
 		env: map[string]string{
-			"GORELEASER_BIN":    "/tools/goreleaser",
-			"GORELEASER_CONFIG": "release.yml",
-			"RELEASE_FORGE":     "github",
-			"GITHUB_TOKEN":      "github-token",
+			"GORELEASER_BIN":             "/tools/goreleaser",
+			"GORELEASER_CONFIG":          "release.yml",
+			"RELEASE_FORGE":              "github",
+			"GITHUB_TOKEN":               "github-token",
+			"RELEASE_HELM_OCI_PASSWORD":  "oci-secret",
+			"RELEASE_HELM_CLASSIC_TOKEN": "classic-secret",
 		},
 		commands: fake,
 		stdout:   ioDiscard(),
@@ -1292,6 +1514,9 @@ func TestRunGoreleaserUsesInjectedRunner(t *testing.T) {
 	}
 	if !envContains(cmd.Env, "GITHUB_TOKEN=github-token") {
 		t.Fatalf("Env does not contain mapped GitHub token")
+	}
+	if envContains(cmd.Env, "RELEASE_HELM_OCI_PASSWORD=oci-secret") || envContains(cmd.Env, "RELEASE_HELM_CLASSIC_TOKEN=classic-secret") {
+		t.Fatalf("GoReleaser environment contains Helm registry secret")
 	}
 }
 
