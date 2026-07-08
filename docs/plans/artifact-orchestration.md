@@ -1,0 +1,411 @@
+# Plan: Artifact Orchestration
+
+## Goal
+
+Expand `release-tools` from a GoReleaser-focused release helper into a small
+artifact-aware orchestrator for binaries, container-image preflights, and Helm
+charts while keeping project-specific build, image, chart, and signing config in
+consumer repositories.
+
+## Scope
+
+- Keep the installed `release-tools` CLI as the only public command surface.
+- Keep GoReleaser as the owner of binaries, archives, checksums, release assets,
+  container image builds, container signing, and GoReleaser-supported SBOMs.
+- Add Helm chart orchestration for check, snapshot, publish, and publish-tag
+  workflows.
+- Add registry and package-token handling without silently reusing forge release
+  tokens for unrelated registries.
+- Add signing checks and signing orchestration only after chart publishing is
+  stable.
+- Add a release manifest only after artifact metadata can be captured reliably.
+- Update `README.md`, `docs/usage.md`, `docs/agent-release-flow.md`, examples,
+  tests, and `AGENTS.md` as public behavior changes.
+
+## Non-Goals
+
+- Do not replace GoReleaser.
+- Do not define Dockerfiles, image names, build matrices, chart content, or SBOM
+  policy for consumer repositories.
+- Do not make the root `Makefile` a consumer release frontend.
+- Do not add a broad config library unless the current strict env-file loader is
+  no longer adequate.
+- Do not add speculative public config keys before the behavior is implemented.
+- Do not implement every Helm backend in the first milestone.
+- Do not make Cosign signing for OCI Helm charts stable before it is prototyped
+  against a real target registry.
+
+## Current Context
+
+- Current public commands are `version`, `tools-check`, `doctor`, `check`,
+  `snapshot`, `publish`, `publish-tag`, `notes`, and `completion`.
+- Current release behavior lives mostly in `cmd/release-tools/main.go`.
+- Current config loading uses a strict allowlist in `allowedConfigKeys`.
+- `publish-tag` publishes from a clean temporary clone of the exact tag.
+- `check` runs `goreleaser check`.
+- `snapshot` runs `goreleaser release --snapshot --skip=publish --clean`.
+- `publish` and `publish-tag` generate release notes, run GoReleaser, then patch
+  the forge release body when configured.
+- Existing verification commands are `make verify`, `make container-test`, and
+  `scripts/test-errors`.
+
+## Assumptions
+
+- Consumer repositories that enable charts have `helm` available locally or in CI.
+- Chart version defaults can be derived from release tags by trimming a leading
+  `v`, for example `v1.2.3` becomes `1.2.3`.
+- GoReleaser remains the only supported container-image publishing path.
+- Separate registry/package tokens are needed because forge release tokens and
+  package registry tokens may have different scopes.
+- Helm publishing and signing behavior must avoid mutating the maintainer's
+  global Helm config when possible.
+
+## Open Questions
+
+- [ ] Which Helm target should be implemented first after local chart packaging:
+  OCI registry or Forgejo/Gitea classic Helm package registry?
+- [ ] Should `release-tools` run `helm registry login` with temporary config, or
+  should it require the caller to pre-authenticate for OCI registries?
+- [ ] Should chart version always come from the release tag, or do we need a
+  supported mode where chart version and app version differ?
+- [ ] Is ChartMuseum required, or can classic Helm publishing start with
+  Forgejo/Gitea only?
+- [ ] Should container-image support be explicit through `RELEASE_ARTIFACTS`, or
+  should `release-tools` only detect GoReleaser container config during `doctor`?
+
+## Proposed Public Config
+
+Initial stable keys for the first Helm milestone:
+
+```sh
+RELEASE_ARTIFACTS=binaries,charts
+RELEASE_HELM_CHART_DIRS=charts/myapp
+RELEASE_HELM_VERSION_FROM=tag
+RELEASE_HELM_APP_VERSION_FROM=tag
+```
+
+Candidate keys for later milestones, not stable until implemented:
+
+```sh
+RELEASE_HELM_OCI_REPOSITORY=oci://codeberg.org/myowner/charts
+RELEASE_HELM_OCI_TOKEN_FILE=~/.config/registry/token
+
+RELEASE_HELM_CLASSIC_MODE=none
+RELEASE_HELM_CLASSIC_URL=https://codeberg.org/api/packages/myowner/helm
+RELEASE_HELM_CLASSIC_TOKEN_FILE=~/.config/forgejo/helm-token
+
+RELEASE_HELM_PROVENANCE=false
+RELEASE_HELM_GPG_KEY=maintainer@example.org
+RELEASE_HELM_GPG_KEYRING=~/.gnupg/pubring.gpg
+
+RELEASE_SIGN_MODE=none
+RELEASE_COSIGN_MODE=keyless
+RELEASE_HELM_OCI_SIGN=false
+
+RELEASE_MANIFEST=false
+```
+
+## Design Principles
+
+- Prefer orchestration over reimplementation.
+- Validate all configured artifact classes before publishing anything remote.
+- Package local artifacts before remote publish steps.
+- Keep publish steps idempotent where possible.
+- If a remote artifact already exists, verify it matches the expected artifact or
+  fail loudly instead of overwriting silently.
+- Use temporary directories and temporary Helm registry/config state for release
+  work that should not mutate a user's global config.
+- Keep config strict and explicit.
+- Preserve current error format and existing command behavior unless the release
+  notes explicitly document a breaking change.
+
+## Phase 1: Internal Structure For Growth
+
+Goal: Make room for artifact orchestration without turning
+`cmd/release-tools/main.go` into an unmaintainable release engine.
+
+Tasks:
+
+- [x] Identify the smallest safe package split for config, command execution,
+  GoReleaser invocation, and future Helm logic.
+- [x] Move config parsing and env helpers behind testable functions without
+  changing public behavior.
+- [x] Move external command execution helpers behind a small runner abstraction
+  that can be tested without invoking real tools.
+- [x] Preserve exact current behavior for GoReleaser commands, notes generation,
+  token resolution, and release body patching.
+- [x] Update tests to cover moved code at the package boundary.
+
+Validation gate:
+
+- [x] `go test ./cmd/release-tools`
+- [x] `scripts/test-errors`
+- [x] `make verify`
+
+Decision point: Continue only if the refactor is behavior-preserving and small
+enough to review confidently.
+
+## Phase 2: Artifact Class Config
+
+Goal: Add explicit artifact-class configuration without enabling remote chart or
+signing behavior yet.
+
+Tasks:
+
+- [ ] Add strict config support for `RELEASE_ARTIFACTS`.
+- [ ] Support `binaries` and `charts` as initial artifact classes.
+- [ ] Treat unset `RELEASE_ARTIFACTS` as the current binaries-only behavior.
+- [ ] Reject unknown artifact classes with a clear error.
+- [ ] Add helper methods for checking whether charts are enabled.
+- [ ] Update `doctor` output to report enabled artifact classes.
+- [ ] Add tests for default behavior, comma parsing, whitespace handling, and
+  invalid values.
+
+Validation gate:
+
+- [ ] `go test ./cmd/release-tools`
+- [ ] `scripts/test-errors`
+- [ ] `make verify`
+
+Decision point: Confirm whether container image detection belongs in this config
+or remains a GoReleaser preflight concern.
+
+## Phase 3: Local Helm Check And Package
+
+Goal: Support local Helm chart validation and packaging in `check` and
+`snapshot` without publishing charts remotely.
+
+Tasks:
+
+- [ ] Add strict config support for `RELEASE_HELM_CHART_DIRS`.
+- [ ] Add strict config support for `RELEASE_HELM_VERSION_FROM=tag`.
+- [ ] Add strict config support for `RELEASE_HELM_APP_VERSION_FROM=tag`.
+- [ ] Require `helm` only when charts are enabled.
+- [ ] Validate chart directories exist when charts are enabled.
+- [ ] Validate each chart has a readable `Chart.yaml`.
+- [ ] Derive chart version from the release tag by trimming one leading `v`.
+- [ ] Run `helm dependency update --skip-refresh <chart>` during chart checks if
+  this behavior proves compatible with expected chart dependency workflows.
+- [ ] Run `helm lint <chart>` during `release-tools check` when charts are
+  enabled.
+- [ ] Run `helm package <chart> --version <version> --app-version <version>
+  --destination dist/charts` during `snapshot` when charts are enabled.
+- [ ] Ensure `snapshot` still does not require publish tokens.
+- [ ] Add unit tests using a fake command runner.
+- [ ] Add integration-style tests with stub `helm` and `goreleaser` binaries.
+
+Validation gate:
+
+- [ ] `go test ./cmd/release-tools`
+- [ ] `scripts/test-errors`
+- [ ] `make verify`
+- [ ] `make container-test`
+
+Decision point: Review whether local Helm packaging should be released before
+remote chart publishing is implemented.
+
+## Phase 4: Publish Sequencing For Charts
+
+Goal: Wire chart packaging into `publish` and `publish-tag` safely before any
+remote chart upload backend is added.
+
+Tasks:
+
+- [ ] Package charts before GoReleaser publish starts.
+- [ ] Ensure `publish-tag` packages charts from the clean tag clone, not the
+  caller's worktree.
+- [ ] Ensure chart output goes to the tag clone's `dist/charts` or equivalent
+  release-local directory.
+- [ ] Fail before GoReleaser publish if chart validation or packaging fails.
+- [ ] Add tests proving chart commands run in the expected order.
+- [ ] Add tests proving `publish-tag` uses clone-local chart paths.
+
+Validation gate:
+
+- [ ] `go test ./cmd/release-tools`
+- [ ] `scripts/test-errors`
+- [ ] `make verify`
+- [ ] `make container-test`
+
+Decision point: Choose the first remote chart publishing target.
+
+## Phase 5: First Remote Helm Backend
+
+Goal: Publish packaged charts to one remote backend with clear auth and
+idempotency semantics.
+
+Candidate A: Helm OCI registry.
+
+- [ ] Add `RELEASE_HELM_OCI_REPOSITORY`.
+- [ ] Add `RELEASE_HELM_OCI_TOKEN_FILE` or equivalent explicit auth config.
+- [ ] Use temporary Helm config and registry config paths.
+- [ ] Decide whether `release-tools` performs `helm registry login` or requires
+  pre-authenticated Helm registry config.
+- [ ] Run `helm push <chart>.tgz oci://...` for each packaged chart.
+- [ ] Capture the resulting chart reference when Helm output exposes it
+  reliably.
+- [ ] Define behavior when a chart version already exists.
+- [ ] Prototype against the intended real registry before documenting support as
+  stable.
+
+Candidate B: Forgejo/Gitea classic Helm package registry.
+
+- [ ] Add `RELEASE_HELM_CLASSIC_MODE=forgejo` or `gitea` after naming is decided.
+- [ ] Add `RELEASE_HELM_CLASSIC_URL`.
+- [ ] Add `RELEASE_HELM_CLASSIC_TOKEN_FILE`.
+- [ ] Implement upload using the documented package API or a supported Helm
+  plugin only after confirming exact behavior.
+- [ ] Define behavior when a chart version already exists.
+- [ ] Prototype against the intended real registry before documenting support as
+  stable.
+
+Validation gate:
+
+- [ ] Unit tests for auth resolution and command/API construction.
+- [ ] Stubbed publish tests for success, existing artifact, and auth failure.
+- [ ] Manual or container-backed end-to-end prototype against the chosen target.
+- [ ] `make verify`
+- [ ] `make container-test`
+
+Decision point: Publish docs for only the backend that has passed an end-to-end
+prototype.
+
+## Phase 6: Container Image Preflights
+
+Goal: Improve confidence for repos that use GoReleaser container publishing
+without making `release-tools` a container builder.
+
+Tasks:
+
+- [ ] Detect whether `.goreleaser.yaml` includes container-image configuration
+  such as `dockers`, `dockers_v2`, `docker_manifests`, or `docker_signs`.
+- [ ] Decide whether detection should use lightweight YAML parsing or a simpler
+  documented opt-in.
+- [ ] Check for required container tooling only when container publishing is
+  detected or explicitly enabled.
+- [ ] Check for `cosign` when GoReleaser image signing is configured or signing
+  is explicitly enabled.
+- [ ] Add docs stating that GoReleaser owns container image build and push.
+- [ ] Add docs warning that `dockers_v2` is still provisional upstream.
+
+Validation gate:
+
+- [ ] Unit tests for detection or opt-in config parsing.
+- [ ] `go test ./cmd/release-tools`
+- [ ] `make verify`
+
+Decision point: Decide whether container support needs any public config beyond
+preflight checks.
+
+## Phase 7: Signing
+
+Goal: Add signing orchestration only where the verification model is clear.
+
+Tasks:
+
+- [ ] Add `RELEASE_SIGN_MODE=none|cosign|notation` only when at least one mode is
+  implemented.
+- [ ] Add `doctor` checks for `cosign`, `notation`, or GPG based on enabled
+  signing behavior.
+- [ ] Add classic Helm provenance support with `helm package --sign`.
+- [ ] Add `RELEASE_HELM_PROVENANCE=true|false`.
+- [ ] Add GPG config keys only when classic provenance is implemented.
+- [ ] Prototype OCI Helm signing with Cosign or `helm-sigstore` against the real
+  target registry.
+- [ ] Sign OCI Helm charts by immutable digest, not just tag, if OCI signing is
+  promoted to stable support.
+- [ ] Keep GoReleaser `docker_signs` as the documented path for container image
+  signing.
+
+Validation gate:
+
+- [ ] Unit tests for signing config validation.
+- [ ] Stubbed signing command tests.
+- [ ] Manual end-to-end signing and verification notes for the chosen backend.
+- [ ] `make verify`
+- [ ] `make container-test`
+
+Decision point: Decide whether OCI Helm signing is stable enough for public docs
+or should remain experimental guidance.
+
+## Phase 8: Release Manifest
+
+Goal: Write a machine-readable manifest only after artifact metadata is reliable.
+
+Tasks:
+
+- [ ] Define `dist/release-manifest.json` schema.
+- [ ] Record release tag and normalized version.
+- [ ] Record packaged Helm chart paths, names, versions, and digests.
+- [ ] Record OCI chart refs and digests when available.
+- [ ] Record classic chart package URLs when available.
+- [ ] Merge GoReleaser artifact metadata if `dist/artifacts.json` or equivalent
+  is available and stable enough.
+- [ ] Record signatures and provenance files when generated.
+- [ ] Add optional upload as a forge release asset only after upload behavior is
+  designed.
+
+Validation gate:
+
+- [ ] Unit tests for manifest schema and deterministic output.
+- [ ] Snapshot test for a representative release manifest.
+- [ ] `go test ./cmd/release-tools`
+- [ ] `make verify`
+
+Decision point: Decide whether manifest generation is always on for chart
+releases or controlled by `RELEASE_MANIFEST=true`.
+
+## Phase 9: Documentation And Examples
+
+Goal: Document stable behavior after each milestone, not speculative future
+support.
+
+Tasks:
+
+- [ ] Update `README.md` with only implemented artifact orchestration behavior.
+- [ ] Update `docs/usage.md` config contract for each newly supported key.
+- [ ] Update `docs/agent-release-flow.md` with sequencing and safety invariants.
+- [ ] Update `AGENTS.md` public contract and verified behavior.
+- [ ] Add or update examples only for stable workflows.
+- [ ] Avoid documenting Make as a consumer release frontend.
+
+Validation gate:
+
+- [ ] Docs match implemented config allowlist.
+- [ ] Examples use only released or release-prep behavior.
+- [ ] `make verify`
+
+## Risks
+
+- Half-published releases if chart publishing starts after GoReleaser publish and
+  then fails.
+- Registry differences between Forgejo, Gitea, GitHub, GitLab, ChartMuseum, and
+  generic OCI registries.
+- Helm auth commands mutating user-global config.
+- OCI Helm signing behavior differing from container image signing expectations.
+- `dockers_v2` upstream behavior changing while it remains provisional.
+- Too many config keys becoming public before the behavior is stable.
+
+## Validation Commands
+
+- [ ] `go test ./cmd/release-tools`
+- [ ] `scripts/test-errors`
+- [ ] `make verify`
+- [ ] `make container-test`
+- [ ] Targeted end-to-end registry prototype commands for each remote backend
+  before marking that backend stable.
+
+## Progress Log
+
+| Date | Update | Evidence |
+| --- | --- | --- |
+| 2026-07-08 | Plan created for artifact orchestration. | User requested a durable implementation plan. |
+| 2026-07-08 | Phase 1 refactor implemented. | Added `internal/config` and injectable `internal/runner`; seam-focused tests passed; verification subagent reported `go test ./...`, `scripts/test-errors`, and `make verify` passed. |
+
+## Decision Log
+
+| Date | Decision | Reason |
+| --- | --- | --- |
+| 2026-07-08 | Keep `release-tools` as an orchestrator rather than a replacement for GoReleaser, Helm, or signing tools. | Preserves current architecture and keeps repo-specific release definitions in consumer repositories. |
+| 2026-07-08 | Start with local Helm check/package before remote publishing or signing. | Lowest-risk milestone with clear validation and no registry side effects. |
+| 2026-07-08 | Do not silently reuse `RELEASE_TOKEN` for registries and package repositories. | Forge release tokens and registry/package tokens often have different scopes. |

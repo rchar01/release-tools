@@ -12,8 +12,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
+
+	"codeberg.org/rch/release-tools/internal/config"
+	"codeberg.org/rch/release-tools/internal/runner"
 
 	"github.com/charmbracelet/fang"
 	"github.com/spf13/cobra"
@@ -52,6 +54,7 @@ type app struct {
 	tmpDir      string
 	configFile  string
 	env         map[string]string
+	commands    runner.Runner
 	stdout      io.Writer
 	stderr      io.Writer
 }
@@ -86,15 +89,15 @@ func errorHandler(w io.Writer, _ fang.Styles, err error) {
 }
 
 func newApp(environ []string, stdout, stderr io.Writer) (*app, error) {
-	env := environMap(environ)
+	env := config.EnvironMap(environ)
 	pwd, err := os.Getwd()
 	if err != nil {
 		return nil, err
 	}
 
-	repoRoot := envValue(env, "RELEASE_REPO_ROOT", pwd)
-	tmpDir := envValue(env, "RELEASE_TMP_DIR", filepath.Join(repoRoot, ".tmp"))
-	configFile := envValue(env, "RELEASE_CONFIG_FILE", filepath.Join(repoRoot, ".release-tools.env"))
+	repoRoot := config.Value(env, "RELEASE_REPO_ROOT", pwd)
+	tmpDir := config.Value(env, "RELEASE_TMP_DIR", filepath.Join(repoRoot, ".tmp"))
+	configFile := config.Value(env, "RELEASE_CONFIG_FILE", filepath.Join(repoRoot, ".release-tools.env"))
 	toolkitRoot := resolveToolkitRoot()
 
 	a := &app{
@@ -103,6 +106,7 @@ func newApp(environ []string, stdout, stderr io.Writer) (*app, error) {
 		tmpDir:      tmpDir,
 		configFile:  configFile,
 		env:         env,
+		commands:    runner.OSRunner{},
 		stdout:      stdout,
 		stderr:      stderr,
 	}
@@ -129,6 +133,7 @@ func (a *app) cloneForRepo(repoRoot, tmpDir string) (*app, error) {
 		tmpDir:      tmpDir,
 		configFile:  env["RELEASE_CONFIG_FILE"],
 		env:         env,
+		commands:    a.commandRunner(),
 		stdout:      a.stdout,
 		stderr:      a.stderr,
 	}
@@ -151,64 +156,28 @@ func resolveToolkitRoot() string {
 }
 
 func environMap(environ []string) map[string]string {
-	env := make(map[string]string, len(environ))
-	for _, entry := range environ {
-		key, value, ok := strings.Cut(entry, "=")
-		if ok {
-			env[key] = value
-		}
-	}
-	return env
+	return config.EnvironMap(environ)
 }
 
 func envValue(env map[string]string, key, fallback string) string {
-	if value, ok := env[key]; ok && value != "" {
-		return value
-	}
-	return fallback
+	return config.Value(env, key, fallback)
 }
 
 func (a *app) loadConfigFile() error {
-	content, err := os.ReadFile(a.configFile)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-
-	for _, raw := range strings.Split(strings.ReplaceAll(string(content), "\r\n", "\n"), "\n") {
-		line := strings.TrimSuffix(raw, "\r")
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		key, value, ok := strings.Cut(line, "=")
-		if !ok {
-			return fmt.Errorf("invalid release config line in %s: %s", a.configFile, line)
-		}
-		if !allowedConfigKeys[key] {
-			return fmt.Errorf("unsupported release config key in %s: %s", a.configFile, key)
-		}
-		if _, exists := a.env[key]; exists {
-			continue
-		}
-		a.env[key] = stripSimpleQuotes(value)
-	}
-	return nil
-}
-
-func stripSimpleQuotes(value string) string {
-	value = strings.TrimSuffix(value, `"`)
-	value = strings.TrimPrefix(value, `"`)
-	value = strings.TrimSuffix(value, `'`)
-	value = strings.TrimPrefix(value, `'`)
-	return value
+	return config.LoadFile(a.configFile, a.env, allowedConfigKeys)
 }
 
 func (a *app) run(args []string) error {
 	cmd := newRootCommand(func() (*app, error) { return a, nil }, a.stdout, a.stderr)
 	cmd.SetArgs(args)
 	return cmd.Execute()
+}
+
+func (a *app) commandRunner() runner.Runner {
+	if a.commands != nil {
+		return a.commands
+	}
+	return runner.OSRunner{}
 }
 
 func newRootCommand(factory appFactory, stdout, stderr io.Writer) *cobra.Command {
@@ -487,7 +456,7 @@ func (a *app) doctor() error {
 	if err != nil {
 		return err
 	}
-	goreleaserVersion := resolveGoreleaserVersion(goreleaserBin)
+	goreleaserVersion := resolveGoreleaserVersion(a.commandRunner(), goreleaserBin)
 
 	a.log("Repository root: %s", a.repoRoot)
 	a.log("Toolkit root: %s", a.toolkitRoot)
@@ -506,8 +475,11 @@ func (a *app) doctor() error {
 	return nil
 }
 
-func resolveGoreleaserVersion(goreleaserBin string) string {
-	output, err := exec.Command(goreleaserBin, "--version").CombinedOutput()
+func resolveGoreleaserVersion(r runner.Runner, goreleaserBin string) string {
+	if r == nil {
+		r = runner.OSRunner{}
+	}
+	output, err := r.CombinedOutput(runner.NewCommand("", goreleaserBin, "--version"))
 	if err != nil {
 		return "unknown"
 	}
@@ -529,7 +501,7 @@ func parseGoreleaserVersion(output string) string {
 
 func (a *app) ensureTools() error {
 	if a.env["RELEASE_REQUIRE_GO"] == "1" {
-		if _, err := exec.LookPath("go"); err != nil {
+		if _, err := a.commandRunner().LookPath("go"); err != nil {
 			return errors.New("go is required")
 		}
 	}
@@ -538,13 +510,14 @@ func (a *app) ensureTools() error {
 }
 
 func (a *app) resolveGoreleaserBin() (string, error) {
+	r := a.commandRunner()
 	if bin := a.env["GORELEASER_BIN"]; bin != "" {
-		if isExecutable(bin) {
+		if r.IsExecutable(bin) {
 			return bin, nil
 		}
 		return "", fmt.Errorf("GORELEASER_BIN is not executable: %s", bin)
 	}
-	if bin, err := exec.LookPath("goreleaser"); err == nil {
+	if bin, err := r.LookPath("goreleaser"); err == nil {
 		return bin, nil
 	}
 
@@ -559,22 +532,11 @@ func (a *app) resolveGoreleaserBin() (string, error) {
 	}
 	candidates = append(candidates, "/usr/local/bin/goreleaser", "/usr/bin/goreleaser")
 	for _, candidate := range candidates {
-		if isExecutable(candidate) {
+		if r.IsExecutable(candidate) {
 			return candidate, nil
 		}
 	}
 	return "", errors.New("goreleaser not found. Install it and ensure it is available in PATH or GORELEASER_BIN")
-}
-
-func isExecutable(path string) bool {
-	info, err := os.Stat(path)
-	if err != nil || info.IsDir() {
-		return false
-	}
-	if runtime.GOOS == "windows" {
-		return true
-	}
-	return info.Mode()&0111 != 0
 }
 
 func (a *app) runGoreleaser(args ...string) error {
@@ -583,15 +545,11 @@ func (a *app) runGoreleaser(args ...string) error {
 		return err
 	}
 	cmdArgs := append([]string{"--config", a.goreleaserConfig()}, args...)
-	cmd := exec.Command(goreleaserBin, cmdArgs...)
-	cmd.Dir = a.repoRoot
-	cmd.Stdout = a.stdout
-	cmd.Stderr = a.stderr
-	cmd.Env = a.environ()
+	cmd := runner.Command{Dir: a.repoRoot, Name: goreleaserBin, Args: cmdArgs, Env: a.environ(), Stdout: a.stdout, Stderr: a.stderr}
 	if token, ok := a.resolveOptionalToken(); ok {
 		cmd.Env = append(cmd.Env, a.goreleaserTokenEnv()+"="+token)
 	}
-	return cmd.Run()
+	return a.commandRunner().Run(cmd)
 }
 
 func (a *app) publish() error {
@@ -658,10 +616,25 @@ func (a *app) publishTag(tag string) error {
 }
 
 func (a *app) cloneTag(tag, cloneDir string) error {
-	if err := runAttached(a.stdout, a.stderr, "", "git", "clone", "--quiet", "file://"+filepath.Join(a.repoRoot, ".git"), cloneDir); err != nil {
+	r := a.commandRunner()
+	cloneCommand := runner.Command{
+		Dir:    "",
+		Name:   "git",
+		Args:   []string{"clone", "--quiet", "file://" + filepath.Join(a.repoRoot, ".git"), cloneDir},
+		Stdout: a.stdout,
+		Stderr: a.stderr,
+	}
+	if err := r.Run(cloneCommand); err != nil {
 		return err
 	}
-	return runAttached(a.stdout, a.stderr, cloneDir, "git", "checkout", "--quiet", "--detach", "refs/tags/"+tag)
+	checkoutCommand := runner.Command{
+		Dir:    cloneDir,
+		Name:   "git",
+		Args:   []string{"checkout", "--quiet", "--detach", "refs/tags/" + tag},
+		Stdout: a.stdout,
+		Stderr: a.stderr,
+	}
+	return r.Run(checkoutCommand)
 }
 
 func (a *app) runGoreleaserWithToken(token string, args ...string) error {
@@ -670,16 +643,19 @@ func (a *app) runGoreleaserWithToken(token string, args ...string) error {
 		return err
 	}
 	cmdArgs := append([]string{"--config", a.goreleaserConfig()}, args...)
-	cmd := exec.Command(goreleaserBin, cmdArgs...)
-	cmd.Dir = a.repoRoot
-	cmd.Stdout = a.stdout
-	cmd.Stderr = a.stderr
-	cmd.Env = append(a.environ(), a.goreleaserTokenEnv()+"="+token)
-	return cmd.Run()
+	cmd := runner.Command{
+		Dir:    a.repoRoot,
+		Name:   goreleaserBin,
+		Args:   cmdArgs,
+		Env:    append(a.environ(), a.goreleaserTokenEnv()+"="+token),
+		Stdout: a.stdout,
+		Stderr: a.stderr,
+	}
+	return a.commandRunner().Run(cmd)
 }
 
 func (a *app) environ() []string {
-	merged := environMap(os.Environ())
+	merged := config.EnvironMap(os.Environ())
 	for key, value := range a.env {
 		merged[key] = value
 	}
@@ -691,10 +667,8 @@ func (a *app) environ() []string {
 }
 
 func (a *app) verifyTagExists(tag string) error {
-	cmd := exec.Command("git", "-C", a.repoRoot, "rev-parse", "-q", "--verify", "refs/tags/"+tag)
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
-	if err := cmd.Run(); err != nil {
+	cmd := runner.Command{Dir: "", Name: "git", Args: []string{"-C", a.repoRoot, "rev-parse", "-q", "--verify", "refs/tags/" + tag}, Stdout: io.Discard, Stderr: io.Discard}
+	if err := a.commandRunner().Run(cmd); err != nil {
 		return fmt.Errorf("tag %s does not exist locally", tag)
 	}
 	return nil
@@ -747,8 +721,8 @@ func (a *app) resolveTag(version string) (string, error) {
 	if value := a.env["VERSION"]; value != "" {
 		return value, nil
 	}
-	cmd := exec.Command("git", "-C", a.repoRoot, "describe", "--tags", "--exact-match")
-	output, err := cmd.Output()
+	cmd := runner.Command{Dir: "", Name: "git", Args: []string{"-C", a.repoRoot, "describe", "--tags", "--exact-match"}}
+	output, err := a.commandRunner().Output(cmd)
 	if err == nil {
 		if tag := strings.TrimSpace(string(output)); tag != "" {
 			return tag, nil
@@ -1142,12 +1116,4 @@ func (a *app) goreleaserConfig() string {
 
 func (a *app) log(format string, args ...any) {
 	fmt.Fprintf(a.stdout, "[INFO] "+format+"\n", args...)
-}
-
-func runAttached(stdout, stderr io.Writer, dir, name string, args ...string) error {
-	cmd := exec.Command(name, args...)
-	cmd.Dir = dir
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
-	return cmd.Run()
 }

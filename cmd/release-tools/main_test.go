@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"codeberg.org/rch/release-tools/internal/runner"
 )
 
 func TestLoadConfigFileKeepsEnvironmentOverride(t *testing.T) {
@@ -301,6 +303,132 @@ GitCommit:     unknown
 	}
 }
 
+func TestDoctorUsesInjectedRunnerForGoreleaserVersion(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".goreleaser.yaml"), "version: 2\n")
+	fake := &fakeCommandRunner{combinedOutput: []byte("GitVersion: v2.16.0\n")}
+	a := &app{
+		repoRoot: dir,
+		env: map[string]string{
+			"RELEASE_PROJECT":    "demo",
+			"RELEASE_OWNER":      "owner",
+			"RELEASE_NOTES_MODE": "none",
+			"RELEASE_BODY_MODE":  "none",
+			"GORELEASER_BIN":     "/tools/goreleaser",
+		},
+		commands: fake,
+		stdout:   ioDiscard(),
+		stderr:   ioDiscard(),
+	}
+
+	if err := a.doctor(); err != nil {
+		t.Fatal(err)
+	}
+	if len(fake.combinedOutputCommands) != 1 {
+		t.Fatalf("combined output commands = %d, want 1", len(fake.combinedOutputCommands))
+	}
+	cmd := fake.combinedOutputCommands[0]
+	if cmd.Name != "/tools/goreleaser" {
+		t.Fatalf("Name = %q, want /tools/goreleaser", cmd.Name)
+	}
+	if len(cmd.Args) != 1 || cmd.Args[0] != "--version" {
+		t.Fatalf("Args = %#v, want [--version]", cmd.Args)
+	}
+}
+
+func TestRunGoreleaserUsesInjectedRunner(t *testing.T) {
+	fake := &fakeCommandRunner{}
+	a := &app{
+		repoRoot: "/repo",
+		env: map[string]string{
+			"GORELEASER_BIN":    "/tools/goreleaser",
+			"GORELEASER_CONFIG": "release.yml",
+			"RELEASE_FORGE":     "github",
+			"GITHUB_TOKEN":      "github-token",
+		},
+		commands: fake,
+		stdout:   ioDiscard(),
+		stderr:   ioDiscard(),
+	}
+
+	if err := a.runGoreleaser("check"); err != nil {
+		t.Fatal(err)
+	}
+	if len(fake.runCommands) != 1 {
+		t.Fatalf("run commands = %d, want 1", len(fake.runCommands))
+	}
+	cmd := fake.runCommands[0]
+	if cmd.Dir != "/repo" {
+		t.Fatalf("Dir = %q, want /repo", cmd.Dir)
+	}
+	if cmd.Name != "/tools/goreleaser" {
+		t.Fatalf("Name = %q, want /tools/goreleaser", cmd.Name)
+	}
+	wantArgs := []string{"--config", "release.yml", "check"}
+	if strings.Join(cmd.Args, "\x00") != strings.Join(wantArgs, "\x00") {
+		t.Fatalf("Args = %#v, want %#v", cmd.Args, wantArgs)
+	}
+	if !envContains(cmd.Env, "GITHUB_TOKEN=github-token") {
+		t.Fatalf("Env does not contain mapped GitHub token")
+	}
+}
+
+func TestResolveTagUsesInjectedRunner(t *testing.T) {
+	fake := &fakeCommandRunner{output: []byte("v1.2.3\n")}
+	a := &app{repoRoot: "/repo", env: map[string]string{}, commands: fake}
+	tag, err := a.resolveTag("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tag != "v1.2.3" {
+		t.Fatalf("tag = %q, want v1.2.3", tag)
+	}
+	if len(fake.outputCommands) != 1 {
+		t.Fatalf("output commands = %d, want 1", len(fake.outputCommands))
+	}
+	cmd := fake.outputCommands[0]
+	if cmd.Name != "git" || strings.Join(cmd.Args, " ") != "-C /repo describe --tags --exact-match" {
+		t.Fatalf("command = %s %#v", cmd.Name, cmd.Args)
+	}
+}
+
+func TestVerifyTagExistsUsesInjectedRunner(t *testing.T) {
+	fake := &fakeCommandRunner{}
+	a := &app{repoRoot: "/repo", commands: fake}
+	if err := a.verifyTagExists("v1.2.3"); err != nil {
+		t.Fatal(err)
+	}
+	if len(fake.runCommands) != 1 {
+		t.Fatalf("run commands = %d, want 1", len(fake.runCommands))
+	}
+	cmd := fake.runCommands[0]
+	want := "-C /repo rev-parse -q --verify refs/tags/v1.2.3"
+	if cmd.Name != "git" || strings.Join(cmd.Args, " ") != want {
+		t.Fatalf("command = %s %#v", cmd.Name, cmd.Args)
+	}
+}
+
+func TestCloneTagUsesInjectedRunner(t *testing.T) {
+	fake := &fakeCommandRunner{}
+	a := &app{repoRoot: "/repo", commands: fake, stdout: ioDiscard(), stderr: ioDiscard()}
+	if err := a.cloneTag("v1.2.3", "/clone"); err != nil {
+		t.Fatal(err)
+	}
+	if len(fake.runCommands) != 2 {
+		t.Fatalf("run commands = %d, want 2", len(fake.runCommands))
+	}
+	clone := fake.runCommands[0]
+	wantClone := "clone --quiet file:///repo/.git /clone"
+	if clone.Name != "git" || strings.Join(clone.Args, " ") != wantClone {
+		t.Fatalf("clone command = %s %#v", clone.Name, clone.Args)
+	}
+	checkout := fake.runCommands[1]
+	wantCheckout := "checkout --quiet --detach refs/tags/v1.2.3"
+	if checkout.Dir != "/clone" || checkout.Name != "git" || strings.Join(checkout.Args, " ") != wantCheckout {
+		t.Fatalf("checkout command = dir %q name %s args %#v", checkout.Dir, checkout.Name, checkout.Args)
+	}
+}
+
 func TestResolveTokenMapsForgeNativeEnvironment(t *testing.T) {
 	a := &app{env: map[string]string{"RELEASE_FORGE": "github", "GITHUB_TOKEN": "github-token"}}
 	token, err := a.resolveToken()
@@ -560,4 +688,44 @@ func gitOutput(t *testing.T, dir string, args ...string) string {
 		t.Fatalf("git %s failed: %v", strings.Join(args, " "), err)
 	}
 	return string(output)
+}
+
+type fakeCommandRunner struct {
+	runCommands            []runner.Command
+	outputCommands         []runner.Command
+	combinedOutputCommands []runner.Command
+	output                 []byte
+	combinedOutput         []byte
+}
+
+func (f *fakeCommandRunner) Run(cmd runner.Command) error {
+	f.runCommands = append(f.runCommands, cmd)
+	return nil
+}
+
+func (f *fakeCommandRunner) Output(cmd runner.Command) ([]byte, error) {
+	f.outputCommands = append(f.outputCommands, cmd)
+	return f.output, nil
+}
+
+func (f *fakeCommandRunner) CombinedOutput(cmd runner.Command) ([]byte, error) {
+	f.combinedOutputCommands = append(f.combinedOutputCommands, cmd)
+	return f.combinedOutput, nil
+}
+
+func (f *fakeCommandRunner) LookPath(file string) (string, error) {
+	return "/fake/" + file, nil
+}
+
+func (f *fakeCommandRunner) IsExecutable(string) bool {
+	return true
+}
+
+func envContains(env []string, want string) bool {
+	for _, entry := range env {
+		if entry == want {
+			return true
+		}
+	}
+	return false
 }
