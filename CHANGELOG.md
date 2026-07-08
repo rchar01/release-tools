@@ -29,6 +29,8 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `RELEASE_HELM_CLASSIC_TOKEN`
 - added `make helm-registry-test` for Podman-backed Zot and ChartMuseum smoke
   testing
+- added `make helm-provenance-test` for disposable GPG-backed Helm provenance
+  signing and `helm verify` smoke testing
 - added `make codeberg-smoke-test` for live Codeberg release smoke testing and
   optional Helm package upload checks against a dedicated disposable repository
 - added GoReleaser container-image preflights that detect `dockers`,

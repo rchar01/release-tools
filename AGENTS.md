@@ -128,6 +128,8 @@
   - `make verify`
   - `make container-test`
   - `make helm-registry-test` for Podman-backed Helm registry smoke tests
+  - `make helm-provenance-test` for disposable GPG-backed Helm provenance smoke
+    tests
   - `make codeberg-smoke-test` for live Codeberg smoke tests against the
     disposable `rch/release-tools-smoke` repository
   - `scripts/test-errors` for focused error-message checks
@@ -138,6 +140,8 @@
   tagging.
 - Use `make helm-registry-test` before releases that change Helm registry
   publishing behavior.
+- Use `make helm-provenance-test` before releases that change Helm provenance
+  signing behavior.
 - Use `make codeberg-smoke-test` only with a token that can push to the smoke
   repository and create releases; package-registry access is needed to exercise
   the Helm upload portion.

@@ -249,6 +249,7 @@ Common maintainer commands:
 make verify
 make container-test
 make helm-registry-test
+make helm-provenance-test
 make codeberg-smoke-test
 make build
 make check
@@ -275,6 +276,14 @@ containers:
 
 ```bash
 make helm-registry-test
+```
+
+Run a disposable GPG-backed Helm provenance smoke test. This builds the current
+CLI, generates a temporary signing key, runs chart-enabled `release-tools
+snapshot`, and verifies the signed chart with `helm verify`:
+
+```bash
+make helm-provenance-test
 ```
 
 Run the live Codeberg smoke test against `rch/release-tools-smoke` with a token
@@ -304,6 +313,9 @@ Before tagging, run verification and update `NEWS.md` and `CHANGELOG.md` from
 make verify
 make container-test
 ```
+
+Also run `make helm-registry-test` for Helm registry publishing changes and
+`make helm-provenance-test` for Helm provenance signing changes.
 
 After committing and pushing the release prep, create and push the tag:
 

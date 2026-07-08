@@ -11,7 +11,7 @@ GO_ENV := CGO_ENABLED=0 GOTMPDIR=$(GO_TMP_DIR) GOCACHE=$(GO_CACHE_DIR)
 LD_FLAGS := -X main.releaseToolsVersion=$(VERSION)
 RELEASE_TOOLS ?= $(GO_ENV) go run -ldflags "$(LD_FLAGS)" ./cmd/release-tools
 
-.PHONY: help build test verify container-test helm-registry-test codeberg-smoke-test check snapshot clean
+.PHONY: help build test verify container-test helm-registry-test helm-provenance-test codeberg-smoke-test check snapshot clean
 
 ## Show available maintainer targets
 help:
@@ -47,6 +47,10 @@ container-test:
 ## Run Podman-backed Helm registry smoke tests
 helm-registry-test:
 	scripts/test-helm-registries
+
+## Run disposable GPG-backed Helm provenance smoke test
+helm-provenance-test:
+	scripts/test-helm-provenance
 
 ## Run live Codeberg release and Helm package smoke test
 codeberg-smoke-test:
