@@ -1,0 +1,243 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
+cd "$ROOT_DIR"
+
+CODEBERG_USERNAME="${CODEBERG_USERNAME:-rch}"
+CODEBERG_SMOKE_OWNER="${CODEBERG_SMOKE_OWNER:-rch}"
+CODEBERG_SMOKE_REPO="${CODEBERG_SMOKE_REPO:-release-tools-smoke}"
+CODEBERG_TOKEN_FILE="${CODEBERG_TOKEN_FILE:-${RELEASE_TOKEN_FILE:-$HOME/.config/codeberg/token}}"
+
+if [[ ! -r "$CODEBERG_TOKEN_FILE" ]]; then
+	printf 'Codeberg token file is not readable: %s\n' "$CODEBERG_TOKEN_FILE" >&2
+	exit 1
+fi
+
+if [[ "${RELEASE_TOOLS_CODEBERG_SMOKE_IN_CONTAINER:-}" != "1" ]] && command -v podman >/dev/null 2>&1; then
+	mkdir -p "$ROOT_DIR/.tmp"
+	token_copy="$ROOT_DIR/.tmp/codeberg-smoke-token"
+	trap 'rm -f "$token_copy"' EXIT
+	cp "$CODEBERG_TOKEN_FILE" "$token_copy"
+	chmod 0600 "$token_copy"
+	set +e
+	"$ROOT_DIR/scripts/in-container" env \
+		RELEASE_TOOLS_CODEBERG_SMOKE_IN_CONTAINER=1 \
+		CODEBERG_USERNAME="$CODEBERG_USERNAME" \
+		CODEBERG_SMOKE_OWNER="$CODEBERG_SMOKE_OWNER" \
+		CODEBERG_SMOKE_REPO="$CODEBERG_SMOKE_REPO" \
+		CODEBERG_TOKEN_FILE=/workspace/.tmp/codeberg-smoke-token \
+		scripts/test-codeberg-smoke
+	status=$?
+	set -e
+	exit "$status"
+fi
+
+for tool in curl git go goreleaser helm; do
+	if ! command -v "$tool" >/dev/null 2>&1; then
+		printf 'required tool not found: %s\n' "$tool" >&2
+		exit 1
+	fi
+done
+
+test_root="$ROOT_DIR/.tmp/codeberg-smoke"
+repo_dir="$test_root/repo"
+bin_dir="$test_root/bin"
+release_tools_bin="$bin_dir/release-tools"
+tag="v0.0.$(date +%s)"
+version="${tag#v}"
+chart_name="release-tools-smoke"
+api_base="https://codeberg.org/api/v1"
+helm_base="https://codeberg.org/api/packages/$CODEBERG_SMOKE_OWNER/helm"
+
+cleanup() {
+	rm -f "$test_root/curl-auth.conf" "$test_root/netrc"
+}
+trap cleanup EXIT
+
+wait_for_url() {
+	url="$1"
+	pattern="$2"
+	for ((attempt = 1; attempt <= 30; attempt++)); do
+		if curl -fsS --netrc-file "$test_root/netrc" "$url" | grep -q "$pattern"; then
+			return 0
+		fi
+		sleep 2
+	done
+	printf 'timed out waiting for %s to contain %s\n' "$url" "$pattern" >&2
+	return 1
+}
+
+rm -rf "$test_root"
+mkdir -p "$bin_dir" "$repo_dir/cmd/smoke" "$repo_dir/charts/smoke" "$ROOT_DIR/.tmp/go-build" "$ROOT_DIR/.tmp/go-cache"
+
+token="$(tr -d '\r\n' <"$CODEBERG_TOKEN_FILE")"
+if [[ -z "$token" ]]; then
+	printf 'Codeberg token file is empty: %s\n' "$CODEBERG_TOKEN_FILE" >&2
+	exit 1
+fi
+cat >"$test_root/curl-auth.conf" <<EOF
+header = "Authorization: token $token"
+EOF
+cat >"$test_root/netrc" <<EOF
+machine codeberg.org
+login $CODEBERG_USERNAME
+password $token
+EOF
+chmod 0600 "$test_root/curl-auth.conf" "$test_root/netrc"
+
+package_status="$(curl -sS -o /dev/null -w '%{http_code}' --netrc-file "$test_root/netrc" "$helm_base/index.yaml")"
+package_enabled=1
+case "$package_status" in
+200|404) ;;
+401|403)
+	package_enabled=0
+	printf 'Skipping Codeberg Helm package upload; credentials were rejected for %s\n' "$helm_base" >&2
+	;;
+*)
+	printf 'unexpected Codeberg Helm package preflight status for %s: %s\n' "$helm_base" "$package_status" >&2
+	exit 1
+	;;
+esac
+
+CGO_ENABLED=0 \
+	GOTMPDIR="$ROOT_DIR/.tmp/go-build" \
+	GOCACHE="$ROOT_DIR/.tmp/go-cache" \
+	go build -o "$release_tools_bin" ./cmd/release-tools
+
+cat >"$repo_dir/go.mod" <<EOF
+module codeberg.org/$CODEBERG_SMOKE_OWNER/$CODEBERG_SMOKE_REPO
+
+go 1.26
+EOF
+cat >"$repo_dir/cmd/smoke/main.go" <<'EOF'
+package main
+
+import "fmt"
+
+func main() {
+	fmt.Println("release-tools Codeberg smoke")
+}
+EOF
+cat >"$repo_dir/.goreleaser.yaml" <<EOF
+version: 2
+
+project_name: release-tools-smoke
+
+builds:
+  - id: smoke
+    main: ./cmd/smoke
+    binary: release-tools-smoke
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+
+archives:
+  - id: smoke
+    ids:
+      - smoke
+    formats:
+      - binary
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+gitea_urls:
+  api: https://codeberg.org/api/v1
+  download: https://codeberg.org
+
+release:
+  gitea:
+    owner: $CODEBERG_SMOKE_OWNER
+    name: $CODEBERG_SMOKE_REPO
+  skip_upload: true
+  mode: replace
+EOF
+cat >"$repo_dir/charts/smoke/Chart.yaml" <<EOF
+apiVersion: v2
+name: $chart_name
+version: 0.0.0
+appVersion: "0.0.0"
+EOF
+cat >"$repo_dir/NEWS.md" <<EOF
+# News
+
+## $tag - 2026-07-08
+
+- Codeberg smoke test for release-tools release and Helm package publishing.
+EOF
+cat >"$repo_dir/.gitignore" <<'EOF'
+.tmp/
+dist/
+EOF
+cat >"$repo_dir/.release-tools.env" <<EOF
+RELEASE_PROJECT=release-tools-smoke
+RELEASE_FORGE=codeberg
+RELEASE_OWNER=$CODEBERG_SMOKE_OWNER
+RELEASE_REPO=$CODEBERG_SMOKE_REPO
+RELEASE_TOKEN_FILE=$CODEBERG_TOKEN_FILE
+RELEASE_ARTIFACTS=binaries,charts
+RELEASE_HELM_CHART_DIRS=charts/smoke
+RELEASE_HELM_VERSION_FROM=tag
+RELEASE_HELM_APP_VERSION_FROM=tag
+RELEASE_NOTES_MODE=news-md
+RELEASE_NOTES_SOURCE=NEWS.md
+RELEASE_BODY_MODE=patch
+GORELEASER_CONFIG=.goreleaser.yaml
+EOF
+if [[ "$package_enabled" == 1 ]]; then
+	cat >>"$repo_dir/.release-tools.env" <<EOF
+RELEASE_HELM_CLASSIC_URL=$helm_base
+RELEASE_HELM_CLASSIC_USERNAME=$CODEBERG_USERNAME
+RELEASE_HELM_CLASSIC_TOKEN_FILE=$CODEBERG_TOKEN_FILE
+EOF
+fi
+
+git -C "$repo_dir" init --quiet
+git -C "$repo_dir" config user.email test@example.invalid
+git -C "$repo_dir" config user.name 'Test User'
+git -C "$repo_dir" add .gitignore .goreleaser.yaml .release-tools.env NEWS.md go.mod cmd/smoke/main.go charts/smoke/Chart.yaml
+git -C "$repo_dir" commit --quiet -m 'Codeberg smoke fixture'
+git -C "$repo_dir" branch -M main
+git -C "$repo_dir" tag "$tag"
+git -C "$repo_dir" remote add origin "https://codeberg.org/$CODEBERG_SMOKE_OWNER/$CODEBERG_SMOKE_REPO.git"
+
+cat >"$test_root/git-askpass" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+*Username*) printf '%s\n' "${CODEBERG_USERNAME:?}" ;;
+*Password*) tr -d '\r\n' <"${CODEBERG_TOKEN_FILE:?}" ;;
+*) printf '\n' ;;
+esac
+EOF
+chmod +x "$test_root/git-askpass"
+GIT_ASKPASS="$test_root/git-askpass" \
+	GIT_TERMINAL_PROMPT=0 \
+	CODEBERG_USERNAME="$CODEBERG_USERNAME" \
+	CODEBERG_TOKEN_FILE="$CODEBERG_TOKEN_FILE" \
+	git -C "$repo_dir" push --quiet origin \
+	"+refs/heads/main:refs/heads/main" \
+	"refs/tags/$tag:refs/tags/$tag"
+
+RELEASE_REPO_ROOT="$repo_dir" "$release_tools_bin" publish
+
+release_json="$(curl -fsS --config "$test_root/curl-auth.conf" \
+	"$api_base/repos/$CODEBERG_SMOKE_OWNER/$CODEBERG_SMOKE_REPO/releases/tags/$tag")"
+if [[ "$release_json" != *"Codeberg smoke test for release-tools"* ]]; then
+	printf 'release body was not patched for %s\n' "$tag" >&2
+	exit 1
+fi
+
+if [[ "$package_enabled" == 1 ]]; then
+	wait_for_url "$helm_base/index.yaml" "$chart_name"
+	wait_for_url "$helm_base/index.yaml" "$version"
+else
+	printf 'Codeberg Helm package upload skipped; provide package registry credentials to test it\n'
+fi
+
+printf 'Codeberg smoke test passed for %s/%s %s\n' "$CODEBERG_SMOKE_OWNER" "$CODEBERG_SMOKE_REPO" "$tag"

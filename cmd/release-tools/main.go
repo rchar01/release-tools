@@ -687,6 +687,10 @@ func (a *app) runHelmChecks() error {
 }
 
 func (a *app) runHelmPackages(version string) ([]string, error) {
+	return a.runHelmPackagesTo(version, filepath.Join("dist", "charts"))
+}
+
+func (a *app) runHelmPackagesTo(version, destination string) ([]string, error) {
 	if enabled, err := a.chartsEnabled(); err != nil {
 		return nil, err
 	} else if !enabled {
@@ -708,8 +712,7 @@ func (a *app) runHelmPackages(version string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	destination := filepath.Join("dist", "charts")
-	if err := os.MkdirAll(filepath.Join(a.repoRoot, destination), 0o755); err != nil {
+	if err := os.MkdirAll(a.repoPath(destination), 0o755); err != nil {
 		return nil, err
 	}
 	packages := []string{}
@@ -735,7 +738,7 @@ func (a *app) runHelmPackages(version string) ([]string, error) {
 }
 
 func (a *app) helmPackageFiles(destination, version string) (map[string]fileState, error) {
-	entries, err := os.ReadDir(filepath.Join(a.repoRoot, destination))
+	entries, err := os.ReadDir(a.repoPath(destination))
 	if err != nil {
 		return nil, err
 	}
@@ -752,6 +755,36 @@ func (a *app) helmPackageFiles(destination, version string) (map[string]fileStat
 		packages[filepath.Join(destination, entry.Name())] = fileState{size: info.Size(), modTime: info.ModTime()}
 	}
 	return packages, nil
+}
+
+func (a *app) helmReleasePackageDir(tag string) (string, func(), error) {
+	dir, err := os.MkdirTemp("", "release-tools-helm-charts-"+safePathName(tag)+"-")
+	if err != nil {
+		return "", func() {}, err
+	}
+	return dir, func() { _ = os.RemoveAll(dir) }, nil
+}
+
+func safePathName(value string) string {
+	var b strings.Builder
+	for _, r := range value {
+		if r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '.' || r == '_' || r == '-' {
+			b.WriteRune(r)
+			continue
+		}
+		b.WriteByte('-')
+	}
+	if b.Len() == 0 {
+		return "release"
+	}
+	return b.String()
+}
+
+func (a *app) repoPath(path string) string {
+	if filepath.IsAbs(path) {
+		return path
+	}
+	return filepath.Join(a.repoRoot, path)
 }
 
 func changedHelmPackage(before, after map[string]fileState) (string, error) {
@@ -868,7 +901,7 @@ func (a *app) runHelmClassicUploads(packages []string, auth *helmClassicAuth) er
 }
 
 func (a *app) uploadHelmClassicPackage(uploadURL, chartPackage string, auth *helmClassicAuth) error {
-	content, err := os.ReadFile(filepath.Join(a.repoRoot, chartPackage))
+	content, err := os.ReadFile(a.repoPath(chartPackage))
 	if err != nil {
 		return err
 	}
@@ -922,7 +955,12 @@ func (a *app) publish() error {
 	if err != nil {
 		return err
 	}
-	packages, err := a.runHelmPackages(chartVersionFromTag(tag))
+	chartDestination, cleanupCharts, err := a.helmReleasePackageDir(tag)
+	if err != nil {
+		return err
+	}
+	defer cleanupCharts()
+	packages, err := a.runHelmPackagesTo(chartVersionFromTag(tag), chartDestination)
 	if err != nil {
 		return err
 	}
@@ -986,7 +1024,12 @@ func (a *app) publishTag(tag string) error {
 	if err != nil {
 		return err
 	}
-	packages, err := cloneApp.runHelmPackages(chartVersionFromTag(tag))
+	chartDestination, cleanupCharts, err := cloneApp.helmReleasePackageDir(tag)
+	if err != nil {
+		return err
+	}
+	defer cleanupCharts()
+	packages, err := cloneApp.runHelmPackagesTo(chartVersionFromTag(tag), chartDestination)
 	if err != nil {
 		return err
 	}

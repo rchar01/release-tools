@@ -250,6 +250,8 @@ Candidate A: Helm OCI registry.
 - [x] Run `helm registry login --password-stdin --registry-config` when explicit
   OCI auth is configured.
 - [x] Run `helm push <chart>.tgz oci://...` for each packaged chart.
+- [x] Keep publish-time chart packages outside GoReleaser's cleaned `dist`
+  directory.
 - [ ] Capture the resulting chart reference when Helm output exposes it
   reliably.
 - [x] Define behavior when a chart version already exists.
@@ -421,6 +423,7 @@ Validation gate:
 | 2026-07-08 | Phase 5 explicit OCI auth implemented. | Added `helm registry login` with `--password-stdin` and temporary registry config when explicit OCI auth is configured; pre-authenticated Helm remains supported when auth config is omitted. |
 | 2026-07-08 | Phase 5 classic Helm backend implemented. | Added Forgejo/Gitea-compatible raw chart uploads to `<url>/api/charts` with explicit package token config; real-registry prototype still pending. |
 | 2026-07-08 | Local Helm registry smoke test implemented. | Added `make helm-registry-test`, `scripts/test-helm-registries`, and `RELEASE_HELM_OCI_PLAIN_HTTP`; smoke test passed against local Zot for OCI push/pull and ChartMuseum for raw `/api/charts` upload. |
+| 2026-07-08 | Live Codeberg smoke test started. | Added `make codeberg-smoke-test` for `rch/release-tools-smoke`; live release creation and body patching passed with GoReleaser 2.16.0, and package upload is blocked by current token package-registry auth (`401 reqPackageAccess`). |
 
 ## Decision Log
 
@@ -435,3 +438,4 @@ Validation gate:
 | 2026-07-08 | Support explicit OCI auth without accepting plaintext passwords in `.release-tools.env`. | Keeps committed config free of registry secrets while allowing CI to provide environment-only credentials. |
 | 2026-07-08 | Use `RELEASE_HELM_CLASSIC_URL` as the classic Helm opt-in switch. | Avoids an extra mode key while the implemented classic backend is specifically Forgejo/Gitea-compatible. |
 | 2026-07-08 | Add explicit plain-HTTP OCI opt-in. | Local Zot smoke testing showed Helm attempts HTTPS by default; `RELEASE_HELM_OCI_PLAIN_HTTP=1` maps directly to Helm's `--plain-http` for registry login and push without making insecure transport implicit. |
+| 2026-07-08 | Keep publish chart packages outside `dist`. | A live Codeberg smoke run showed real GoReleaser `--clean` deletes `dist/charts` after pre-publish chart packaging; a temp directory outside the repo preserves fail-before-publish validation without losing packages before upload. |

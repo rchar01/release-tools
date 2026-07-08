@@ -156,6 +156,8 @@ Reason:
 
 - Helm remains the chart packaging authority
 - local checks and packages can be validated before remote publishing exists
+- publish-time chart packages live outside `dist` because GoReleaser owns and
+  cleans that directory during real publish runs
 - OCI publishing uses Helm's native `helm push` behavior
 - insecure OCI transport is explicit and limited to Helm registry login and
   chart pushes

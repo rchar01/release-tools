@@ -29,6 +29,14 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `RELEASE_HELM_CLASSIC_TOKEN`
 - added `make helm-registry-test` for Podman-backed Zot and ChartMuseum smoke
   testing
+- added `make codeberg-smoke-test` for live Codeberg release smoke testing and
+  optional Helm package upload checks against a dedicated disposable repository
+
+### Fixed
+
+- kept publish-time Helm chart packages outside GoReleaser's cleaned `dist`
+  directory so real `goreleaser release --clean` runs do not delete charts
+  before registry upload
 
 ## [3.3.0] - 2026-07-02
 

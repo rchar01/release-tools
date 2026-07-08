@@ -224,6 +224,7 @@ Common maintainer commands:
 make verify
 make container-test
 make helm-registry-test
+make codeberg-smoke-test
 make build
 make check
 make snapshot
@@ -249,6 +250,14 @@ containers:
 
 ```bash
 make helm-registry-test
+```
+
+Run the live Codeberg smoke test against `rch/release-tools-smoke` with a token
+that can push to that repository and create releases. Package-registry access is
+optional and enables the Helm upload portion of the smoke test:
+
+```bash
+make codeberg-smoke-test
 ```
 
 For focused CLI error-message checks, use:

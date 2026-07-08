@@ -432,9 +432,7 @@ func TestPublishPackagesHelmChartsBeforeGoreleaser(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("commands = %#v, want 2 commands", got)
 	}
-	if got[0] != "/fake/helm package charts/demo --version 1.2.3 --app-version 1.2.3 --destination dist/charts" {
-		t.Fatalf("first command = %q, want helm package", got[0])
-	}
+	assertPublishHelmPackageCommand(t, got[0], "charts/demo", "1.2.3", dir)
 	if !strings.HasPrefix(got[1], "/tools/goreleaser --config .goreleaser.yaml release --clean --release-notes ") {
 		t.Fatalf("second command = %q, want goreleaser publish", got[1])
 	}
@@ -472,13 +470,11 @@ func TestPublishPushesHelmChartsToOCIAfterGoreleaser(t *testing.T) {
 	if len(got) != 3 {
 		t.Fatalf("commands = %#v, want 3 commands", got)
 	}
-	if got[0] != "/fake/helm package charts/demo --version 1.2.3 --app-version 1.2.3 --destination dist/charts" {
-		t.Fatalf("first command = %q, want helm package", got[0])
-	}
+	assertPublishHelmPackageCommand(t, got[0], "charts/demo", "1.2.3", dir)
 	if !strings.HasPrefix(got[1], "/tools/goreleaser --config .goreleaser.yaml release --clean --release-notes ") {
 		t.Fatalf("second command = %q, want goreleaser publish", got[1])
 	}
-	if got[2] != "/fake/helm push dist/charts/demo-1.2.3.tgz oci://registry.example/charts" {
+	if !isHelmPushCommand(got[2], "demo-1.2.3.tgz", "oci://registry.example/charts") {
 		t.Fatalf("third command = %q, want helm OCI push", got[2])
 	}
 }
@@ -517,9 +513,7 @@ func TestPublishLogsIntoHelmOCIWithTemporaryRegistryConfig(t *testing.T) {
 	if len(got) != 4 {
 		t.Fatalf("commands = %#v, want 4 commands", got)
 	}
-	if got[0] != "/fake/helm package charts/demo --version 1.2.3 --app-version 1.2.3 --destination dist/charts" {
-		t.Fatalf("first command = %q, want helm package", got[0])
-	}
+	assertPublishHelmPackageCommand(t, got[0], "charts/demo", "1.2.3", dir)
 	login := fake.runCommands[1]
 	if login.Name != "/fake/helm" || strings.Join(login.Args[:7], " ") != "registry login registry.example --username robot --password-stdin --registry-config" {
 		t.Fatalf("login command = %q, want helm registry login", got[1])
@@ -531,9 +525,8 @@ func TestPublishLogsIntoHelmOCIWithTemporaryRegistryConfig(t *testing.T) {
 	if !strings.HasPrefix(got[2], "/tools/goreleaser --config .goreleaser.yaml release --clean --release-notes ") {
 		t.Fatalf("third command = %q, want goreleaser publish", got[2])
 	}
-	wantPush := "/fake/helm push dist/charts/demo-1.2.3.tgz oci://registry.example/charts --registry-config " + registryConfig
-	if got[3] != wantPush {
-		t.Fatalf("fourth command = %q, want %q", got[3], wantPush)
+	if !isHelmPushCommand(got[3], "demo-1.2.3.tgz", "oci://registry.example/charts") || !strings.HasSuffix(got[3], " --registry-config "+registryConfig) {
+		t.Fatalf("fourth command = %q, want helm OCI push with registry config %q", got[3], registryConfig)
 	}
 	stdin, err := io.ReadAll(login.Stdin)
 	if err != nil {
@@ -577,7 +570,7 @@ func TestPublishPushesHelmChartsWithPlainHTTP(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := commandStrings(fake.runCommands)
-	if got[2] != "/fake/helm push dist/charts/demo-1.2.3.tgz oci://registry.example/charts --plain-http" {
+	if !isHelmPushCommand(got[2], "demo-1.2.3.tgz", "oci://registry.example/charts") || !strings.HasSuffix(got[2], " --plain-http") {
 		t.Fatalf("third command = %q, want helm OCI plain HTTP push", got[2])
 	}
 }
@@ -885,7 +878,7 @@ func TestPublishPushesDiscoveredHelmPackagePath(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := commandStrings(fake.runCommands)
-	if got[len(got)-1] != "/fake/helm push dist/charts/published-name-1.2.3.tgz oci://registry.example/charts" {
+	if !isHelmPushCommand(got[len(got)-1], "published-name-1.2.3.tgz", "oci://registry.example/charts") {
 		t.Fatalf("last command = %q, want discovered helm package path", got[len(got)-1])
 	}
 }
@@ -1040,9 +1033,8 @@ func TestPublishTagPushesHelmChartsFromClone(t *testing.T) {
 			if cmd.Dir != clone {
 				t.Fatalf("helm push dir = %q, want clone %q", cmd.Dir, clone)
 			}
-			wantArgs := "push dist/charts/demo-1.2.3.tgz oci://registry.example/charts"
-			if strings.Join(cmd.Args, " ") != wantArgs {
-				t.Fatalf("helm push args = %#v, want %s", cmd.Args, wantArgs)
+			if len(cmd.Args) != 3 || cmd.Args[0] != "push" || filepath.Base(cmd.Args[1]) != "demo-1.2.3.tgz" || !filepath.IsAbs(cmd.Args[1]) || cmd.Args[2] != "oci://registry.example/charts" {
+				t.Fatalf("helm push args = %#v, want absolute chart package and OCI repository", cmd.Args)
 			}
 		}
 	}
@@ -1912,6 +1904,30 @@ func commandStrings(commands []runner.Command) []string {
 	return out
 }
 
+func assertPublishHelmPackageCommand(t *testing.T, got, chart, version, repoRoot string) {
+	t.Helper()
+	prefix := "/fake/helm package " + chart + " --version " + version + " --app-version " + version + " --destination "
+	if !strings.HasPrefix(got, prefix) {
+		t.Fatalf("helm package command = %q, want prefix %q", got, prefix)
+	}
+	destination := strings.TrimPrefix(got, prefix)
+	if !filepath.IsAbs(destination) {
+		t.Fatalf("helm package destination = %q, want absolute temp dir", destination)
+	}
+	inside, err := pathInside(repoRoot, destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inside {
+		t.Fatalf("helm package destination = %q, want outside repo %q", destination, repoRoot)
+	}
+}
+
+func isHelmPushCommand(got, chartPackage, repository string) bool {
+	fields := strings.Fields(got)
+	return len(fields) >= 4 && fields[0] == "/fake/helm" && fields[1] == "push" && filepath.Base(fields[2]) == chartPackage && filepath.IsAbs(fields[2]) && fields[3] == repository
+}
+
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", args...)
@@ -1982,10 +1998,14 @@ func fakeHelmPackage(cmd runner.Command) error {
 	if name == "" {
 		name = filepath.Base(chart)
 	}
-	if err := os.MkdirAll(filepath.Join(cmd.Dir, destination), 0o755); err != nil {
+	destinationPath := destination
+	if !filepath.IsAbs(destinationPath) {
+		destinationPath = filepath.Join(cmd.Dir, destinationPath)
+	}
+	if err := os.MkdirAll(destinationPath, 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(cmd.Dir, destination, name+"-"+version+".tgz"), []byte("chart"), 0o644)
+	return os.WriteFile(filepath.Join(destinationPath, name+"-"+version+".tgz"), []byte("chart"), 0o644)
 }
 
 func fakeChartName(chartFile string) string {

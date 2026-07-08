@@ -117,6 +117,8 @@
   - `make verify`
   - `make container-test`
   - `make helm-registry-test` for Podman-backed Helm registry smoke tests
+  - `make codeberg-smoke-test` for live Codeberg smoke tests against the
+    disposable `rch/release-tools-smoke` repository
   - `scripts/test-errors` for focused error-message checks
 
 ## Self-Release Procedure
@@ -125,6 +127,9 @@
   tagging.
 - Use `make helm-registry-test` before releases that change Helm registry
   publishing behavior.
+- Use `make codeberg-smoke-test` only with a token that can push to the smoke
+  repository and create releases; package-registry access is needed to exercise
+  the Helm upload portion.
 - Update `NEWS.md` and `CHANGELOG.md` from `Unreleased` to the release version
   before committing release prep.
 - Build the current CLI with `make build` before publishing this repository.
@@ -147,6 +152,8 @@
 - `publish` and `publish-tag` package charts before GoReleaser publish starts;
   when `RELEASE_HELM_OCI_REPOSITORY` is set they push packaged charts with
   `helm push` after GoReleaser succeeds.
+- Publish-time chart packages are written to a temporary directory outside the
+  release repository so GoReleaser `--clean` cannot delete them before upload.
 - Explicit Helm OCI auth is resolved before GoReleaser publish starts and uses
   `helm registry login --password-stdin --registry-config <temporary-file>`.
 - When `RELEASE_HELM_CLASSIC_URL` is set, `publish` and `publish-tag` upload
