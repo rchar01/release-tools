@@ -154,7 +154,7 @@ Tasks:
 Validation gate:
 
 - [x] Focused signing tests pass.
-- [ ] `make verify` passes.
+- [x] `make verify` passes.
 - [ ] OCI signing smoke test passes.
 
 ## Phase 4: GoReleaser Artifact Manifest Merge
@@ -178,7 +178,7 @@ Validation gate:
 
 - [x] `dist/release-manifest.json` remains deterministic and backward-compatible
   for existing chart consumers.
-- [ ] `make verify` passes.
+- [x] `make verify` passes.
 
 Decision point: Automatic merge is acceptable because it only reflects
 GoReleaser-owned metadata already written into `dist/artifacts.json`.
@@ -204,7 +204,7 @@ Validation gate:
 - [x] Upload tests pass for supported forge APIs.
 - [ ] A live smoke test confirms the manifest appears as a release asset only
   after all configured artifact steps succeed.
-- [ ] `make verify` passes.
+- [x] `make verify` passes.
 
 ## Risks
 
@@ -235,6 +235,7 @@ Validation gate:
 | 2026-07-08 | Phase 2 and Phase 3 OCI signing implementation started. | Research selected Cosign and Notation over `helm-sigstore`; implementation parses Helm `Pushed:`/`Digest:` output, signs digest refs only, and records digest/signature metadata in the chart manifest. |
 | 2026-07-08 | Phase 4 GoReleaser artifact manifest merge implemented. | Snapshot, publish, and publish-tag now merge `dist/artifacts.json` metadata into `dist/release-manifest.json` when present, including binary-only publish-tag output copying. |
 | 2026-07-08 | Phase 5 manifest upload implemented. | `RELEASE_MANIFEST_UPLOAD=1` uploads `dist/release-manifest.json` after all configured publish-time artifact steps succeed; Gitea/Forgejo/Codeberg, GitHub, and GitLab upload paths have focused tests. |
+| 2026-07-08 | Phase 2 through Phase 5 verification passed. | `make verify`, `make container-test`, `make helm-registry-test`, `make helm-provenance-test`, and `make codeberg-smoke-test` passed after OCI digest signing, GoReleaser manifest metadata merge, and manifest upload changes. Codeberg smoke passed for `rch/release-tools-smoke` `v0.0.1783536199`. |
 
 ## Decision Log
 
