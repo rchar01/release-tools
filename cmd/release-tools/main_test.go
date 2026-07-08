@@ -913,6 +913,186 @@ func TestPublishPackagesHelmChartsBeforeGoreleaser(t *testing.T) {
 	}
 }
 
+func TestPublishUploadsReleaseManifestAsset(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "NEWS.md"), "# News\n\n## v1.2.3 - 2026-07-02\n\n- release\n")
+	uploaded := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/owner/demo/releases/tags/v1.2.3":
+			if r.Header.Get("Authorization") != "token token" {
+				t.Fatalf("Authorization = %q, want token auth", r.Header.Get("Authorization"))
+			}
+			_, _ = w.Write([]byte(`{"id":42}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/repos/owner/demo/releases/42/assets" && r.URL.Query().Get("name") == "release-manifest.json":
+			if err := r.ParseMultipartForm(1 << 20); err != nil {
+				t.Fatal(err)
+			}
+			files := r.MultipartForm.File["attachment"]
+			if len(files) != 1 || files[0].Filename != "release-manifest.json" {
+				t.Fatalf("multipart files = %#v, want release manifest attachment", files)
+			}
+			uploaded = true
+			w.WriteHeader(http.StatusCreated)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.String())
+		}
+	}))
+	defer server.Close()
+	fake := &fakeCommandRunner{}
+	fake.onRun = func(cmd runner.Command) error {
+		if cmd.Name == "/tools/goreleaser" {
+			if err := os.MkdirAll(filepath.Join(dir, "dist"), 0o755); err != nil {
+				return err
+			}
+			writeFile(t, filepath.Join(dir, "dist", "release-tools"), "binary")
+			writeFile(t, filepath.Join(dir, "dist", "artifacts.json"), `[
+{"name":"release-tools","path":"dist/release-tools","type":"Binary","goos":"linux","goarch":"amd64","target":"linux_amd64_v1","extra":{"Checksum":"sha256:abc123"}}
+]`)
+		}
+		return nil
+	}
+	a := &app{
+		repoRoot: dir,
+		tmpDir:   filepath.Join(dir, ".tmp"),
+		env: map[string]string{
+			"VERSION":                 "v1.2.3",
+			"RELEASE_FORGE":           "gitea",
+			"RELEASE_API_URL":         server.URL,
+			"RELEASE_OWNER":           "owner",
+			"RELEASE_PROJECT":         "demo",
+			"RELEASE_TOKEN":           "token",
+			"RELEASE_NOTES_MODE":      "news-md",
+			"RELEASE_NOTES_SOURCE":    "NEWS.md",
+			"RELEASE_BODY_MODE":       "none",
+			"RELEASE_MANIFEST_UPLOAD": "1",
+			"GORELEASER_BIN":          "/tools/goreleaser",
+		},
+		commands: fake,
+		stdout:   ioDiscard(),
+		stderr:   ioDiscard(),
+	}
+
+	if err := a.publish(); err != nil {
+		t.Fatal(err)
+	}
+	if !uploaded {
+		t.Fatal("release manifest was not uploaded")
+	}
+}
+
+func TestUploadReleaseManifestToGitHub(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "dist"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(dir, "dist", "release-manifest.json"), `{"schema_version":1}`)
+	uploaded := false
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/owner/repo/releases/tags/v1.0.0":
+			_, _ = w.Write([]byte(`{"upload_url":"` + server.URL + `/uploads/42/assets{?name,label}"}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/uploads/42/assets" && r.URL.Query().Get("name") == "release-manifest.json":
+			if r.Header.Get("Authorization") != "Bearer github-token" {
+				t.Fatalf("Authorization = %q, want bearer token", r.Header.Get("Authorization"))
+			}
+			uploaded = true
+			w.WriteHeader(http.StatusCreated)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.String())
+		}
+	}))
+	defer server.Close()
+	a := &app{repoRoot: dir, env: map[string]string{
+		"RELEASE_FORGE":           "github",
+		"RELEASE_API_URL":         server.URL,
+		"RELEASE_OWNER":           "owner",
+		"RELEASE_REPO":            "repo",
+		"RELEASE_MANIFEST_UPLOAD": "1",
+	}}
+
+	if err := a.uploadReleaseManifestIfEnabled("v1.0.0", "github-token"); err != nil {
+		t.Fatal(err)
+	}
+	if !uploaded {
+		t.Fatal("GitHub manifest asset was not uploaded")
+	}
+}
+
+func TestUploadReleaseManifestFailsOnDuplicateAsset(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "dist"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(dir, "dist", "release-manifest.json"), `{"schema_version":1}`)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/owner/repo/releases/tags/v1.0.0":
+			_, _ = w.Write([]byte(`{"id":42}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/repos/owner/repo/releases/42/assets":
+			http.Error(w, "duplicate", http.StatusConflict)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.String())
+		}
+	}))
+	defer server.Close()
+	a := &app{repoRoot: dir, env: map[string]string{
+		"RELEASE_FORGE":           "gitea",
+		"RELEASE_API_URL":         server.URL,
+		"RELEASE_OWNER":           "owner",
+		"RELEASE_REPO":            "repo",
+		"RELEASE_MANIFEST_UPLOAD": "1",
+	}}
+
+	err := a.uploadReleaseManifestIfEnabled("v1.0.0", "token")
+	if err == nil || !strings.Contains(err.Error(), "409") {
+		t.Fatalf("upload error = %v, want duplicate asset failure", err)
+	}
+}
+
+func TestUploadReleaseManifestToGitLab(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "dist"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(dir, "dist", "release-manifest.json"), `{"schema_version":1}`)
+	linked := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.EscapedPath() == "/api/v4/projects/owner%2Frepo/uploads":
+			_, _ = w.Write([]byte(`{"full_path":"/owner/repo/uploads/abc/release-manifest.json"}`))
+		case r.Method == http.MethodPost && r.URL.EscapedPath() == "/api/v4/projects/owner%2Frepo/releases/v1.0.0/assets/links":
+			var payload map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatal(err)
+			}
+			if payload["name"] != "release-manifest.json" || !strings.Contains(payload["url"], "/owner/repo/uploads/abc/release-manifest.json") {
+				t.Fatalf("payload = %#v, want manifest asset link", payload)
+			}
+			linked = true
+			w.WriteHeader(http.StatusCreated)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.String())
+		}
+	}))
+	defer server.Close()
+	a := &app{repoRoot: dir, env: map[string]string{
+		"RELEASE_FORGE":           "gitlab",
+		"RELEASE_API_URL":         server.URL + "/api/v4",
+		"RELEASE_OWNER":           "owner",
+		"RELEASE_REPO":            "repo",
+		"RELEASE_MANIFEST_UPLOAD": "1",
+	}}
+
+	if err := a.uploadReleaseManifestIfEnabled("v1.0.0", "gitlab-token"); err != nil {
+		t.Fatal(err)
+	}
+	if !linked {
+		t.Fatal("GitLab manifest asset link was not added")
+	}
+}
+
 func TestPublishPersistsHelmProvenance(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "release-keyring.gpg"), "keyring")

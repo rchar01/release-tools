@@ -46,6 +46,9 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - added GoReleaser `dist/artifacts.json` metadata merging into
   `dist/release-manifest.json`, including binary/archive/checksum names, types,
   paths, targets, platforms, and SHA-256 values when available
+- added opt-in `RELEASE_MANIFEST_UPLOAD=1` to upload
+  `dist/release-manifest.json` as a forge release asset after all configured
+  publish-time artifact steps succeed
 - added Helm chart provenance signing with `RELEASE_HELM_PROVENANCE`,
   `RELEASE_HELM_GPG_KEY`, and `RELEASE_HELM_GPG_KEYRING`; generated `.prov`
   files are copied back to `dist/charts` and recorded in the release manifest

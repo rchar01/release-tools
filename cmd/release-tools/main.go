@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
@@ -49,6 +50,7 @@ var allowedConfigKeys = map[string]bool{
 	"RELEASE_NOTES_SOURCE":            true,
 	"RELEASE_NOTES_MODE":              true,
 	"RELEASE_BODY_MODE":               true,
+	"RELEASE_MANIFEST_UPLOAD":         true,
 	"GORELEASER_CONFIG":               true,
 	"GORELEASER_BIN":                  true,
 	"RELEASE_REQUIRE_GO":              true,
@@ -515,6 +517,9 @@ func (a *app) check() error {
 	if err := a.validateChartConfig(); err != nil {
 		return err
 	}
+	if err := a.validateManifestUploadConfig(); err != nil {
+		return err
+	}
 	if err := a.runGoreleaser("check"); err != nil {
 		return err
 	}
@@ -523,6 +528,9 @@ func (a *app) check() error {
 
 func (a *app) snapshot() error {
 	if err := a.validateChartConfig(); err != nil {
+		return err
+	}
+	if err := a.validateManifestUploadConfig(); err != nil {
 		return err
 	}
 	chartVersion := ""
@@ -594,6 +602,9 @@ func (a *app) doctor() error {
 	default:
 		return fmt.Errorf("unsupported RELEASE_BODY_MODE: %s", bodyMode)
 	}
+	if err := a.validateManifestUploadConfig(); err != nil {
+		return err
+	}
 
 	if err := a.ensureTools(); err != nil {
 		return err
@@ -653,6 +664,7 @@ func (a *app) doctor() error {
 	}
 	a.log("Release notes mode: %s", notesMode)
 	a.log("Release body mode: %s", bodyMode)
+	a.log("Release manifest upload: %t", a.manifestUpload())
 	a.log("release-tools configuration looks valid")
 	return nil
 }
@@ -1448,6 +1460,9 @@ func (a *app) publish() error {
 	if err := a.validateChartConfig(); err != nil {
 		return err
 	}
+	if err := a.validateManifestUploadConfig(); err != nil {
+		return err
+	}
 	if err := a.clearReleaseManifestOutputs(); err != nil {
 		return err
 	}
@@ -1500,7 +1515,10 @@ func (a *app) publish() error {
 			return err
 		}
 	}
-	return a.writeReleaseManifest(tag, chartVersionFromTag(tag), manifestPackages, rebaseHelmOCIPushResults(ociResults, manifestPackages))
+	if err := a.writeReleaseManifest(tag, chartVersionFromTag(tag), manifestPackages, rebaseHelmOCIPushResults(ociResults, manifestPackages)); err != nil {
+		return err
+	}
+	return a.uploadReleaseManifestIfEnabled(tag, token)
 }
 
 func (a *app) publishTag(tag string) error {
@@ -1509,6 +1527,9 @@ func (a *app) publishTag(tag string) error {
 		return err
 	}
 	if err := a.verifyTagExists(tag); err != nil {
+		return err
+	}
+	if err := a.validateManifestUploadConfig(); err != nil {
 		return err
 	}
 	if err := a.clearReleaseManifestOutputs(); err != nil {
@@ -1594,6 +1615,9 @@ func (a *app) publishTag(tag string) error {
 			return err
 		}
 		if err := a.copyReleaseOutputsFrom(cloneApp); err != nil {
+			return err
+		}
+		if err := a.uploadReleaseManifestIfEnabled(tag, token); err != nil {
 			return err
 		}
 	}
@@ -1995,6 +2019,200 @@ func (a *app) updateGitLabReleaseBody(tag string, body []byte, token string) err
 	return nil
 }
 
+func (a *app) uploadReleaseManifestIfEnabled(tag, token string) error {
+	if !a.manifestUpload() {
+		return nil
+	}
+	manifestPath := filepath.Join(a.repoRoot, "dist", "release-manifest.json")
+	content, err := os.ReadFile(manifestPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("release manifest not found for upload: %s", manifestPath)
+		}
+		return err
+	}
+	forge, err := a.releaseForge()
+	if err != nil {
+		return err
+	}
+	switch forge {
+	case forgeGitea:
+		return a.uploadGiteaReleaseManifest(tag, content, token)
+	case forgeGitHub:
+		return a.uploadGitHubReleaseManifest(tag, content, token)
+	case forgeGitLab:
+		return a.uploadGitLabReleaseManifest(tag, content, token)
+	default:
+		return fmt.Errorf("unsupported RELEASE_FORGE for manifest upload: %s", forge)
+	}
+}
+
+func (a *app) uploadGiteaReleaseManifest(tag string, content []byte, token string) error {
+	releaseURL := fmt.Sprintf("%s/repos/%s/%s/releases/tags/%s", a.releaseAPIURL(), a.releaseOwner(), a.releaseRepo(), url.PathEscape(tag))
+	req, err := http.NewRequest(http.MethodGet, releaseURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "token "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("failed to fetch release %s: %s", tag, resp.Status)
+	}
+	var release struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return err
+	}
+	if release.ID == 0 {
+		return fmt.Errorf("release id not found for %s", tag)
+	}
+	body, contentType, err := multipartFileBody("attachment", "release-manifest.json", content)
+	if err != nil {
+		return err
+	}
+	uploadURL := fmt.Sprintf("%s/repos/%s/%s/releases/%d/assets?name=%s", a.releaseAPIURL(), a.releaseOwner(), a.releaseRepo(), release.ID, url.QueryEscape("release-manifest.json"))
+	return a.postReleaseManifestAsset(uploadURL, "token "+token, contentType, body)
+}
+
+func (a *app) uploadGitHubReleaseManifest(tag string, content []byte, token string) error {
+	releaseURL := fmt.Sprintf("%s/repos/%s/%s/releases/tags/%s", a.releaseAPIURL(), a.releaseOwner(), a.releaseRepo(), url.PathEscape(tag))
+	req, err := http.NewRequest(http.MethodGet, releaseURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("failed to fetch release %s: %s", tag, resp.Status)
+	}
+	var release struct {
+		UploadURL string `json:"upload_url"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return err
+	}
+	if release.UploadURL == "" {
+		return fmt.Errorf("release upload URL not found for %s", tag)
+	}
+	uploadURL := strings.TrimSuffix(release.UploadURL, "{?name,label}")
+	separator := "?"
+	if strings.Contains(uploadURL, "?") {
+		separator = "&"
+	}
+	uploadURL += separator + "name=" + url.QueryEscape("release-manifest.json")
+	return a.postReleaseManifestAsset(uploadURL, "Bearer "+token, "application/json", bytes.NewReader(content))
+}
+
+func (a *app) uploadGitLabReleaseManifest(tag string, content []byte, token string) error {
+	projectPath := url.PathEscape(a.releaseOwner() + "/" + a.releaseRepo())
+	body, contentType, err := multipartFileBody("file", "release-manifest.json", content)
+	if err != nil {
+		return err
+	}
+	uploadURL := fmt.Sprintf("%s/projects/%s/uploads", a.releaseAPIURL(), projectPath)
+	uploadReq, err := http.NewRequest(http.MethodPost, uploadURL, body)
+	if err != nil {
+		return err
+	}
+	uploadReq.Header.Set("PRIVATE-TOKEN", token)
+	uploadReq.Header.Set("Content-Type", contentType)
+	uploadResp, err := http.DefaultClient.Do(uploadReq)
+	if err != nil {
+		return err
+	}
+	defer uploadResp.Body.Close()
+	if uploadResp.StatusCode < 200 || uploadResp.StatusCode >= 300 {
+		return fmt.Errorf("failed to upload release manifest to GitLab project: %s", uploadResp.Status)
+	}
+	var upload struct {
+		URL      string `json:"url"`
+		FullPath string `json:"full_path"`
+	}
+	if err := json.NewDecoder(uploadResp.Body).Decode(&upload); err != nil {
+		return err
+	}
+	assetURL := upload.FullPath
+	if assetURL == "" {
+		assetURL = upload.URL
+	}
+	if assetURL == "" {
+		return errors.New("GitLab upload response did not include a manifest URL")
+	}
+	if strings.HasPrefix(assetURL, "/") {
+		assetURL = strings.TrimRight(gitLabWebURL(a.releaseAPIURL()), "/") + assetURL
+	}
+	payload, err := json.Marshal(map[string]string{"name": "release-manifest.json", "url": assetURL, "link_type": "other"})
+	if err != nil {
+		return err
+	}
+	linkURL := fmt.Sprintf("%s/projects/%s/releases/%s/assets/links", a.releaseAPIURL(), projectPath, url.PathEscape(tag))
+	linkReq, err := http.NewRequest(http.MethodPost, linkURL, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	linkReq.Header.Set("PRIVATE-TOKEN", token)
+	linkReq.Header.Set("Content-Type", "application/json")
+	linkResp, err := http.DefaultClient.Do(linkReq)
+	if err != nil {
+		return err
+	}
+	defer linkResp.Body.Close()
+	if linkResp.StatusCode < 200 || linkResp.StatusCode >= 300 {
+		return fmt.Errorf("failed to add GitLab release manifest asset link: %s", linkResp.Status)
+	}
+	a.log("Uploaded release manifest for %s", tag)
+	return nil
+}
+
+func (a *app) postReleaseManifestAsset(uploadURL, authorization, contentType string, body io.Reader) error {
+	req, err := http.NewRequest(http.MethodPost, uploadURL, body)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", authorization)
+	req.Header.Set("Content-Type", contentType)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("failed to upload release manifest: %s", resp.Status)
+	}
+	a.log("Uploaded release manifest")
+	return nil
+}
+
+func multipartFileBody(fieldName, fileName string, content []byte) (io.Reader, string, error) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	file, err := writer.CreateFormFile(fieldName, fileName)
+	if err != nil {
+		return nil, "", err
+	}
+	if _, err := file.Write(content); err != nil {
+		return nil, "", err
+	}
+	if err := writer.Close(); err != nil {
+		return nil, "", err
+	}
+	return bytes.NewReader(body.Bytes()), writer.FormDataContentType(), nil
+}
+
+func gitLabWebURL(apiURL string) string {
+	return strings.TrimSuffix(strings.TrimRight(apiURL, "/"), "/api/v4")
+}
+
 func (a *app) resolveToken() (string, error) {
 	if _, err := a.releaseForge(); err != nil {
 		return "", err
@@ -2139,6 +2357,14 @@ func (a *app) releaseNotesMode() string {
 
 func (a *app) releaseBodyMode() string {
 	return envValue(a.env, "RELEASE_BODY_MODE", "none")
+}
+
+func (a *app) manifestUpload() bool {
+	return configBool(a.env["RELEASE_MANIFEST_UPLOAD"])
+}
+
+func (a *app) validateManifestUploadConfig() error {
+	return validateConfigBool("RELEASE_MANIFEST_UPLOAD", a.env["RELEASE_MANIFEST_UPLOAD"])
 }
 
 func (a *app) goreleaserConfig() string {
@@ -2871,5 +3097,9 @@ func chartVersionFromTag(tag string) string {
 }
 
 func (a *app) log(format string, args ...any) {
-	fmt.Fprintf(a.stdout, "[INFO] "+format+"\n", args...)
+	stdout := a.stdout
+	if stdout == nil {
+		stdout = io.Discard
+	}
+	fmt.Fprintf(stdout, "[INFO] "+format+"\n", args...)
 }

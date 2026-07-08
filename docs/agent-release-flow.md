@@ -181,6 +181,9 @@ Reason:
   after local packaging or remote chart publishing succeeds
 - when GoReleaser writes `dist/artifacts.json`, release manifests merge
   GoReleaser-owned artifact metadata as a read-only view of the source of truth
+- `RELEASE_MANIFEST_UPLOAD=1` uploads the manifest as a forge release asset only
+  after all configured artifact publishing/signing and local manifest generation
+  succeed
 - classic Helm provenance uses Helm's own `helm package --sign` behavior with an
   explicit key and keyring
 - publish commands copy successfully uploaded chart packages back into

@@ -39,8 +39,8 @@ config surface before behavior is proven.
   with `helm verify`.
 - GoReleaser metadata from `dist/artifacts.json` is merged into the release
   manifest when present.
-- The release manifest is generated locally but is not uploaded as a release
-  asset.
+- The release manifest can be uploaded as a release asset when
+  `RELEASE_MANIFEST_UPLOAD=1` is set.
 
 ## Assumptions
 
@@ -68,8 +68,9 @@ config surface before behavior is proven.
   `dist/artifacts.json` exists, or guarded behind an explicit config key?
   Decision: merge automatically when GoReleaser writes `dist/artifacts.json`;
   this is read-only metadata and does not expand the artifact config surface.
-- [ ] Should manifest release-asset upload be automatic for chart-enabled flows,
+- [x] Should manifest release-asset upload be automatic for chart-enabled flows,
   or opt-in to avoid changing release asset surfaces unexpectedly?
+  Decision: upload is opt-in with `RELEASE_MANIFEST_UPLOAD=1`.
 
 ## Phase 1: Release-Readiness Validation
 
@@ -189,17 +190,18 @@ artifacts are final.
 
 Tasks:
 
-- [ ] Decide whether upload is automatic for manifest-producing flows or opt-in.
-- [ ] Design upload sequencing so failed chart publishing or signing cannot leave
+- [x] Decide whether upload is automatic for manifest-producing flows or opt-in.
+- [x] Design upload sequencing so failed chart publishing or signing cannot leave
   a release asset that claims success.
-- [ ] Implement upload for supported forges using existing token resolution.
-- [ ] Define duplicate asset behavior: fail, replace, or verify identical bytes.
-- [ ] Add tests for upload success, duplicate handling, and API failures.
-- [ ] Document asset upload behavior and failure modes.
+- [x] Implement upload for supported forges using existing token resolution.
+- [x] Define duplicate asset behavior: fail, replace, or verify identical bytes.
+  Decision: fail on duplicate or any other non-2xx upload/link response.
+- [x] Add tests for upload success, duplicate handling, and API failures.
+- [x] Document asset upload behavior and failure modes.
 
 Validation gate:
 
-- [ ] Upload tests pass for supported forge APIs.
+- [x] Upload tests pass for supported forge APIs.
 - [ ] A live smoke test confirms the manifest appears as a release asset only
   after all configured artifact steps succeed.
 - [ ] `make verify` passes.
@@ -232,6 +234,7 @@ Validation gate:
 | 2026-07-08 | Phase 1 release-readiness validation passed. | `make verify`, `make container-test`, `make helm-registry-test`, `make helm-provenance-test`, and `make codeberg-smoke-test` all passed sequentially; Codeberg smoke passed for `rch/release-tools-smoke` `v0.0.1783530033`. |
 | 2026-07-08 | Phase 2 and Phase 3 OCI signing implementation started. | Research selected Cosign and Notation over `helm-sigstore`; implementation parses Helm `Pushed:`/`Digest:` output, signs digest refs only, and records digest/signature metadata in the chart manifest. |
 | 2026-07-08 | Phase 4 GoReleaser artifact manifest merge implemented. | Snapshot, publish, and publish-tag now merge `dist/artifacts.json` metadata into `dist/release-manifest.json` when present, including binary-only publish-tag output copying. |
+| 2026-07-08 | Phase 5 manifest upload implemented. | `RELEASE_MANIFEST_UPLOAD=1` uploads `dist/release-manifest.json` after all configured publish-time artifact steps succeed; Gitea/Forgejo/Codeberg, GitHub, and GitLab upload paths have focused tests. |
 
 ## Decision Log
 

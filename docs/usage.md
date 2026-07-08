@@ -121,6 +121,7 @@ Supported `.release-tools.env` keys:
 - `RELEASE_NOTES_SOURCE`
 - `RELEASE_NOTES_MODE`
 - `RELEASE_BODY_MODE`
+- `RELEASE_MANIFEST_UPLOAD`
 - `GORELEASER_CONFIG`
 - `GORELEASER_BIN`
 - `RELEASE_REQUIRE_GO`
@@ -186,6 +187,7 @@ RELEASE_HELM_APP_VERSION_FROM=tag
 # RELEASE_HELM_PROVENANCE=0
 # RELEASE_HELM_GPG_KEY=maintainer@example.org
 # RELEASE_HELM_GPG_KEYRING=~/.config/helm/release-keyring.gpg
+# RELEASE_MANIFEST_UPLOAD=0
 ```
 
 Only `tag` is currently supported for Helm chart and app versions. A release tag
@@ -319,7 +321,13 @@ After chart pushes or uploads succeed, those packages and `.prov` files are
 copied back into `dist/charts` before the manifest is written. For
 `publish-tag`, the chart packages, provenance files, and manifest are copied from
 the clean temporary tag clone back to the caller repository. The manifest is not
-yet uploaded as a release asset.
+uploaded as a release asset unless `RELEASE_MANIFEST_UPLOAD=1` is set.
+
+Set `RELEASE_MANIFEST_UPLOAD=1` to upload `dist/release-manifest.json` as a
+forge release asset after GoReleaser publishing, release body patching, chart
+pushes/uploads, chart signing, and local manifest generation all succeed. Gitea,
+Forgejo, Codeberg, GitHub, and GitLab are supported. Duplicate asset/link
+responses fail the release command instead of replacing an existing manifest.
 
 Required for release commands:
 

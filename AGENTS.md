@@ -67,6 +67,7 @@
   - `RELEASE_NOTES_SOURCE`
   - `RELEASE_NOTES_MODE`
   - `RELEASE_BODY_MODE`
+  - `RELEASE_MANIFEST_UPLOAD`
   - `GORELEASER_CONFIG`
   - `GORELEASER_BIN`
   - `RELEASE_REQUIRE_GO`
@@ -195,6 +196,10 @@
 - CLI release notes currently support `RELEASE_NOTES_MODE=news-md`, `gnu-news`,
   and `none`.
 - CLI release body patching currently supports `RELEASE_BODY_MODE=patch` and `none`.
+- `RELEASE_MANIFEST_UPLOAD=1` uploads `dist/release-manifest.json` as a forge
+  release asset after all configured publish-time artifact steps and local
+  manifest generation succeed; duplicate upload/link responses fail rather than
+  replace existing assets.
 - project Go preflight is required only when `RELEASE_REQUIRE_GO=1`.
 - GoReleaser container image preflights require Docker, Podman, Cosign, or a
   configured static signing command only when the GoReleaser config contains
