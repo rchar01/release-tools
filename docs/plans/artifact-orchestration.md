@@ -349,11 +349,12 @@ Goal: Write a machine-readable manifest only after artifact metadata is reliable
 
 Tasks:
 
-- [ ] Define `dist/release-manifest.json` schema.
-- [ ] Record release tag and normalized version.
-- [ ] Record packaged Helm chart paths, names, versions, and digests.
-- [ ] Record OCI chart refs and digests when available.
-- [ ] Record classic chart package URLs when available.
+- [x] Define `dist/release-manifest.json` schema.
+- [x] Record release tag and normalized version.
+- [x] Record packaged Helm chart paths, names, versions, and digests.
+- [x] Record OCI chart refs when available; OCI digests remain pending until Helm
+  exposes them reliably.
+- [x] Record classic chart package URLs when available.
 - [ ] Merge GoReleaser artifact metadata if `dist/artifacts.json` or equivalent
   is available and stable enough.
 - [ ] Record signatures and provenance files when generated.
@@ -362,13 +363,14 @@ Tasks:
 
 Validation gate:
 
-- [ ] Unit tests for manifest schema and deterministic output.
-- [ ] Snapshot test for a representative release manifest.
-- [ ] `go test ./cmd/release-tools`
-- [ ] `make verify`
+- [x] Unit tests for manifest schema and deterministic output.
+- [x] Snapshot test for a representative release manifest.
+- [x] `go test ./cmd/release-tools`
+- [x] `make verify`
 
-Decision point: Decide whether manifest generation is always on for chart
-releases or controlled by `RELEASE_MANIFEST=true`.
+Decision point: Manifest generation is always on for chart-enabled snapshot and
+publish flows, with no new config key. Binary-only manifest generation waits
+until GoReleaser artifact metadata merging is designed.
 
 ## Phase 9: Documentation And Examples
 
@@ -428,6 +430,7 @@ Validation gate:
 | 2026-07-08 | Live Codeberg smoke test started. | Added `make codeberg-smoke-test` for `rch/release-tools-smoke`; live release creation and body patching passed with GoReleaser 2.16.0, and package upload was initially blocked by token package-registry auth (`401 reqPackageAccess`). |
 | 2026-07-08 | Live Codeberg chart publishing verified. | `make codeberg-smoke-test` passed with package-registry credentials; the smoke waits for Codeberg Helm `index.yaml` to contain the uploaded chart name and exact release version. |
 | 2026-07-08 | Phase 6 container image preflights implemented. | Added top-level GoReleaser container config detection for `dockers`, `dockers_v2`, `docker_manifests`, and `docker_signs`; `doctor` and `tools-check` now require the matching Docker, Podman, Cosign, or configured static signing command only when those keys are present. |
+| 2026-07-08 | Phase 8 chart release manifest implemented. | Chart-enabled snapshot, publish, and publish-tag flows now write `dist/release-manifest.json` with tag, version, chart package paths, SHA-256 values, OCI refs, and classic Helm package endpoints; publish commands copy packages back into `dist/charts`, and publish-tag copies chart packages plus the manifest back from the temporary tag clone. |
 
 ## Decision Log
 
@@ -444,3 +447,4 @@ Validation gate:
 | 2026-07-08 | Add explicit plain-HTTP OCI opt-in. | Local Zot smoke testing showed Helm attempts HTTPS by default; `RELEASE_HELM_OCI_PLAIN_HTTP=1` maps directly to Helm's `--plain-http` for registry login and push without making insecure transport implicit. |
 | 2026-07-08 | Keep publish chart packages outside `dist`. | A live Codeberg smoke run showed real GoReleaser `--clean` deletes `dist/charts` after pre-publish chart packaging; a temp directory outside the repo preserves fail-before-publish validation without losing packages before upload. |
 | 2026-07-08 | Do not add container images to `RELEASE_ARTIFACTS`. | GoReleaser already owns image build, push, manifest, and image-signing behavior; `release-tools` only detects GoReleaser config and preflights local tools. |
+| 2026-07-08 | Generate chart manifests without a new config key. | The manifest records chart package metadata only after chart packaging or upload succeeds; broader binary artifact manifests wait for GoReleaser metadata merging. |

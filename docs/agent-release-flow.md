@@ -170,6 +170,14 @@ Reason:
 - classic package uploads use documented Basic auth with a username plus an
   environment-only or file-backed token; auth is resolved before GoReleaser
   starts
+- chart-enabled snapshot, publish, and publish-tag flows write a deterministic
+  `dist/release-manifest.json` with chart package names, versions, paths,
+  SHA-256 values, and configured registry targets after local packaging or
+  remote chart publishing succeeds
+- publish commands copy successfully uploaded chart packages back into
+  `dist/charts` before writing the manifest so recorded paths remain valid
+- `publish-tag` copies the chart packages and manifest out of the clean
+  temporary tag clone before the clone is removed
 - chart signing can be added without changing the command surface
 
 ### Go Preflight Is Optional
@@ -235,6 +243,8 @@ Reason:
 - OCI chart push failures happen after GoReleaser publish and release body
   patching have succeeded, so maintainers may need to retry chart publishing
   after fixing registry auth or registry-side issues
+- chart release manifests are written after chart package upload succeeds, so a
+  failed remote chart publish does not leave a manifest that claims success
 
 ## What To Watch Out For
 

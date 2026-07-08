@@ -628,6 +628,27 @@ func TestSnapshotPackagesHelmCharts(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "dist", "charts")); err != nil {
 		t.Fatalf("dist/charts was not created: %v", err)
 	}
+	manifest := readReleaseManifest(t, filepath.Join(dir, "dist", "release-manifest.json"))
+	if manifest.SchemaVersion != 1 {
+		t.Fatalf("schema_version = %d, want 1", manifest.SchemaVersion)
+	}
+	if manifest.Release.Tag != "v1.2.3" || manifest.Release.Version != "1.2.3" {
+		t.Fatalf("release = %#v, want v1.2.3 / 1.2.3", manifest.Release)
+	}
+	if len(manifest.Artifacts.HelmCharts) != 1 {
+		t.Fatalf("helm charts = %d, want 1", len(manifest.Artifacts.HelmCharts))
+	}
+	chart := manifest.Artifacts.HelmCharts[0]
+	if chart.Name != "demo" || chart.Version != "1.2.3" || chart.Path != "dist/charts/demo-1.2.3.tgz" {
+		t.Fatalf("chart = %#v, want demo manifest entry", chart)
+	}
+	sha, err := fileSHA256(filepath.Join(dir, "dist", "charts", "demo-1.2.3.tgz"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if chart.SHA256 != sha {
+		t.Fatalf("chart sha = %q, want %q", chart.SHA256, sha)
+	}
 }
 
 func TestPublishPackagesHelmChartsBeforeGoreleaser(t *testing.T) {
@@ -705,6 +726,17 @@ func TestPublishPushesHelmChartsToOCIAfterGoreleaser(t *testing.T) {
 	}
 	if !isHelmPushCommand(got[2], "demo-1.2.3.tgz", "oci://registry.example/charts") {
 		t.Fatalf("third command = %q, want helm OCI push", got[2])
+	}
+	manifest := readReleaseManifest(t, filepath.Join(dir, "dist", "release-manifest.json"))
+	chart := manifest.Artifacts.HelmCharts[0]
+	if chart.OCIRef != "oci://registry.example/charts/demo:1.2.3" {
+		t.Fatalf("OCI ref = %q, want chart ref", chart.OCIRef)
+	}
+	if chart.Path != "dist/charts/demo-1.2.3.tgz" {
+		t.Fatalf("chart path = %q, want stable chart path", chart.Path)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "dist", "charts", "demo-1.2.3.tgz")); err != nil {
+		t.Fatalf("persisted chart package missing: %v", err)
 	}
 }
 
@@ -980,6 +1012,14 @@ func TestPublishUploadsHelmChartsToClassicRegistry(t *testing.T) {
 	got := commandStrings(fake.runCommands)
 	if len(got) != 2 || !strings.HasPrefix(got[1], "/tools/goreleaser --config .goreleaser.yaml release --clean --release-notes ") {
 		t.Fatalf("commands = %#v, want package then goreleaser", got)
+	}
+	manifest := readReleaseManifest(t, filepath.Join(dir, "dist", "release-manifest.json"))
+	chart := manifest.Artifacts.HelmCharts[0]
+	if chart.ClassicURL != server.URL+"/api/packages/owner/helm" {
+		t.Fatalf("classic URL = %q, want registry URL", chart.ClassicURL)
+	}
+	if chart.ClassicUploadURL != server.URL+"/api/packages/owner/helm/api/charts" {
+		t.Fatalf("classic upload URL = %q, want api/charts URL", chart.ClassicUploadURL)
 	}
 }
 
@@ -1273,12 +1313,31 @@ func TestPublishTagPushesHelmChartsFromClone(t *testing.T) {
 	if pushIndex < goreleaserIndex {
 		t.Fatalf("helm push ran before goreleaser: %#v", commandStrings(fake.runCommands))
 	}
+	manifest := readReleaseManifest(t, filepath.Join(repo, "dist", "release-manifest.json"))
+	if manifest.Release.Tag != "v1.2.3" || manifest.Release.Version != "1.2.3" {
+		t.Fatalf("manifest release = %#v, want v1.2.3 / 1.2.3", manifest.Release)
+	}
+	chart := manifest.Artifacts.HelmCharts[0]
+	if chart.OCIRef != "oci://registry.example/charts/demo:1.2.3" {
+		t.Fatalf("manifest OCI ref = %q, want chart ref", chart.OCIRef)
+	}
+	if chart.Path != "dist/charts/demo-1.2.3.tgz" {
+		t.Fatalf("manifest chart path = %q, want copied publish-tag package path", chart.Path)
+	}
+	if _, err := os.Stat(filepath.Join(repo, "dist", "charts", "demo-1.2.3.tgz")); err != nil {
+		t.Fatalf("publish-tag chart package was not copied back: %v", err)
+	}
 }
 
 func TestPublishTagPatchesReleaseBodyBeforeFailingHelmOCIPush(t *testing.T) {
 	dir := t.TempDir()
 	repo := filepath.Join(dir, "repo")
 	clone := filepath.Join(dir, ".tmp", "release-v1.2.3")
+	if err := os.MkdirAll(filepath.Join(repo, "dist", "charts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(repo, "dist", "release-manifest.json"), `{"stale":true}`)
+	writeFile(t, filepath.Join(repo, "dist", "charts", "demo-1.2.3.tgz"), "stale")
 	patched := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -1331,6 +1390,12 @@ func TestPublishTagPatchesReleaseBodyBeforeFailingHelmOCIPush(t *testing.T) {
 	}
 	if !patched {
 		t.Fatal("release body was not patched before helm push failed")
+	}
+	if _, err := os.Stat(filepath.Join(repo, "dist", "release-manifest.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("release manifest exists after failed Helm push: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, "dist", "charts", "demo-1.2.3.tgz")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("chart package exists after failed Helm push: %v", err)
 	}
 }
 
@@ -2175,6 +2240,19 @@ func gitOutput(t *testing.T, dir string, args ...string) string {
 		t.Fatalf("git %s failed: %v", strings.Join(args, " "), err)
 	}
 	return string(output)
+}
+
+func readReleaseManifest(t *testing.T, path string) releaseManifest {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest releaseManifest
+	if err := json.Unmarshal(content, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	return manifest
 }
 
 type fakeCommandRunner struct {

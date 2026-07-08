@@ -135,7 +135,11 @@ HELM_LOG="$chart_test_dir/helm.log" \
   .tmp/release-tools-test snapshot >/dev/null
 grep -q 'helm package charts/demo --version 1.2.3 --app-version 1.2.3 --destination dist/charts' "$chart_test_dir/helm.log"
 test -f "$chart_test_dir/dist/charts/demo-1.2.3.tgz"
+test -f "$chart_test_dir/dist/release-manifest.json"
+grep -q '"tag": "v1.2.3"' "$chart_test_dir/dist/release-manifest.json"
+grep -q '"path": "dist/charts/demo-1.2.3.tgz"' "$chart_test_dir/dist/release-manifest.json"
 rm -f "$chart_test_dir/helm.log" "$chart_test_dir/goreleaser.log"
+rm -f "$chart_test_dir/dist/release-manifest.json"
 HELM_LOG="$chart_test_dir/helm.log" \
   GORELEASER_LOG="$chart_test_dir/goreleaser.log" \
   PATH="$stub_bin:$PATH" \
@@ -149,6 +153,7 @@ grep -q 'helm package charts/demo --version 1.2.3 --app-version 1.2.3 --destinat
 grep -q 'helm registry login registry.example --username robot --password-stdin --registry-config' "$chart_test_dir/helm.log"
 grep -q 'helm push .*/demo-1.2.3.tgz oci://registry.example/charts' "$chart_test_dir/helm.log"
 grep -q 'goreleaser --config .goreleaser.yaml release --clean --release-notes' "$chart_test_dir/goreleaser.log"
+grep -q '"oci_ref": "oci://registry.example/charts/demo:1.2.3"' "$chart_test_dir/dist/release-manifest.json"
 rm -f "$chart_test_dir/helm.log" "$chart_test_dir/goreleaser.log"
 HELM_LOG="$chart_test_dir/helm.log" \
   GORELEASER_LOG="$chart_test_dir/goreleaser.log" \
@@ -163,6 +168,10 @@ grep -q 'helm registry login registry.example --username robot --password-stdin 
 grep -q 'helm push .*/demo-1.2.3.tgz oci://registry.example/charts' "$chart_test_dir/helm.log"
 grep -q "helm-pwd $chart_test_dir/.tmp/release-v1.2.3" "$chart_test_dir/helm.log"
 grep -q "goreleaser-pwd $chart_test_dir/.tmp/release-v1.2.3" "$chart_test_dir/goreleaser.log"
+test -f "$chart_test_dir/dist/release-manifest.json"
+grep -q '"oci_ref": "oci://registry.example/charts/demo:1.2.3"' "$chart_test_dir/dist/release-manifest.json"
+grep -q '"path": "dist/charts/demo-1.2.3.tgz"' "$chart_test_dir/dist/release-manifest.json"
+test -f "$chart_test_dir/dist/charts/demo-1.2.3.tgz"
 rm -rf "$chart_test_dir"
 
 rm -f .tmp/release-tools-test

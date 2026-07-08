@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -95,6 +96,31 @@ type helmOCIAuthSession struct {
 type helmClassicAuth struct {
 	username string
 	token    string
+}
+
+type releaseManifest struct {
+	SchemaVersion int                      `json:"schema_version"`
+	Release       releaseManifestRelease   `json:"release"`
+	Artifacts     releaseManifestArtifacts `json:"artifacts"`
+}
+
+type releaseManifestRelease struct {
+	Tag     string `json:"tag"`
+	Version string `json:"version"`
+}
+
+type releaseManifestArtifacts struct {
+	HelmCharts []releaseManifestHelmChart `json:"helm_charts"`
+}
+
+type releaseManifestHelmChart struct {
+	Name             string `json:"name"`
+	Version          string `json:"version"`
+	Path             string `json:"path"`
+	SHA256           string `json:"sha256"`
+	OCIRef           string `json:"oci_ref,omitempty"`
+	ClassicURL       string `json:"classic_url,omitempty"`
+	ClassicUploadURL string `json:"classic_upload_url,omitempty"`
 }
 
 type goreleaserContainerConfig struct {
@@ -469,20 +495,28 @@ func (a *app) snapshot() error {
 		return err
 	}
 	chartVersion := ""
+	chartTag := ""
 	if enabled, err := a.chartsEnabled(); err != nil {
 		return err
 	} else if enabled {
-		version, err := a.helmVersion()
+		tag, err := a.resolveTag("")
 		if err != nil {
 			return err
 		}
-		chartVersion = version
+		chartTag = tag
+		chartVersion = chartVersionFromTag(tag)
 	}
 	if err := a.runGoreleaser("release", "--snapshot", "--skip=publish", "--clean"); err != nil {
 		return err
 	}
-	_, err := a.runHelmPackages(chartVersion)
-	return err
+	packages, err := a.runHelmPackages(chartVersion)
+	if err != nil {
+		return err
+	}
+	if len(packages) > 0 {
+		return a.writeReleaseManifest(chartTag, chartVersion, packages)
+	}
+	return nil
 }
 
 func (a *app) doctor() error {
@@ -830,6 +864,157 @@ func changedHelmPackage(before, after map[string]fileState) (string, error) {
 	return changed[0], nil
 }
 
+func (a *app) writeReleaseManifest(tag, version string, packages []string) error {
+	charts, err := a.releaseManifestHelmCharts(version, packages)
+	if err != nil {
+		return err
+	}
+	manifest := releaseManifest{
+		SchemaVersion: 1,
+		Release: releaseManifestRelease{
+			Tag:     tag,
+			Version: version,
+		},
+		Artifacts: releaseManifestArtifacts{
+			HelmCharts: charts,
+		},
+	}
+	content, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return err
+	}
+	content = append(content, '\n')
+	manifestPath := filepath.Join(a.repoRoot, "dist", "release-manifest.json")
+	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(manifestPath, content, 0o644)
+}
+
+func (a *app) releaseManifestHelmCharts(version string, packages []string) ([]releaseManifestHelmChart, error) {
+	charts := make([]releaseManifestHelmChart, 0, len(packages))
+	for _, chartPackage := range packages {
+		name := helmPackageName(chartPackage, version)
+		sha, err := fileSHA256(a.repoPath(chartPackage))
+		if err != nil {
+			return nil, err
+		}
+		chart := releaseManifestHelmChart{
+			Name:    name,
+			Version: version,
+			Path:    manifestPathForRepo(a.repoRoot, chartPackage),
+			SHA256:  sha,
+		}
+		if repository := a.helmOCIRepository(); repository != "" && name != "" {
+			chart.OCIRef = strings.TrimRight(repository, "/") + "/" + name + ":" + version
+		}
+		if classicURL := a.helmClassicURL(); classicURL != "" {
+			chart.ClassicURL = classicURL
+			uploadURL, err := helmClassicUploadURL(classicURL)
+			if err != nil {
+				return nil, err
+			}
+			chart.ClassicUploadURL = uploadURL
+		}
+		charts = append(charts, chart)
+	}
+	sort.Slice(charts, func(i, j int) bool {
+		if charts[i].Name != charts[j].Name {
+			return charts[i].Name < charts[j].Name
+		}
+		return charts[i].Path < charts[j].Path
+	})
+	return charts, nil
+}
+
+func (a *app) persistHelmPackages(packages []string) ([]string, error) {
+	if len(packages) == 0 {
+		return nil, nil
+	}
+	destination := filepath.Join(a.repoRoot, "dist", "charts")
+	if err := os.MkdirAll(destination, 0o755); err != nil {
+		return nil, err
+	}
+	persisted := make([]string, 0, len(packages))
+	for _, chartPackage := range packages {
+		name := filepath.Base(chartPackage)
+		target := filepath.Join(destination, name)
+		if err := copyFile(a.repoPath(chartPackage), target); err != nil {
+			return nil, err
+		}
+		persisted = append(persisted, filepath.Join("dist", "charts", name))
+	}
+	sort.Strings(persisted)
+	return persisted, nil
+}
+
+func helmPackageName(chartPackage, version string) string {
+	name := filepath.Base(chartPackage)
+	return strings.TrimSuffix(name, "-"+version+".tgz")
+}
+
+func manifestPathForRepo(repoRoot, path string) string {
+	if filepath.IsAbs(path) {
+		if rel, err := filepath.Rel(repoRoot, path); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel) {
+			return filepath.ToSlash(rel)
+		}
+		return filepath.ToSlash(path)
+	}
+	return filepath.ToSlash(path)
+}
+
+func fileSHA256(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", hash.Sum(nil)), nil
+}
+
+func copyDirectory(source, target string) error {
+	entries, err := os.ReadDir(source)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if err := copyFile(filepath.Join(source, entry.Name()), filepath.Join(target, entry.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func copyFile(source, target string) error {
+	in, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return err
+	}
+	out, err := os.Create(target)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return err
+	}
+	return out.Close()
+}
+
 func (a *app) prepareHelmOCIAuth(auth *helmOCIAuth) (*helmOCIAuthSession, error) {
 	session := &helmOCIAuthSession{cleanup: func() {}}
 	if auth == nil {
@@ -972,6 +1157,9 @@ func (a *app) publish() error {
 	if err := a.validateChartConfig(); err != nil {
 		return err
 	}
+	if err := a.clearReleaseManifestOutputs(); err != nil {
+		return err
+	}
 	helmOCIAuth, err := a.resolveHelmOCIAuth()
 	if err != nil {
 		return err
@@ -1007,7 +1195,17 @@ func (a *app) publish() error {
 	if err := a.runHelmOCIPushes(packages, helmOCISession); err != nil {
 		return err
 	}
-	return a.runHelmClassicUploads(packages, helmClassicAuth)
+	if err := a.runHelmClassicUploads(packages, helmClassicAuth); err != nil {
+		return err
+	}
+	if len(packages) == 0 {
+		return nil
+	}
+	manifestPackages, err := a.persistHelmPackages(packages)
+	if err != nil {
+		return err
+	}
+	return a.writeReleaseManifest(tag, chartVersionFromTag(tag), manifestPackages)
 }
 
 func (a *app) publishTag(tag string) error {
@@ -1016,6 +1214,9 @@ func (a *app) publishTag(tag string) error {
 		return err
 	}
 	if err := a.verifyTagExists(tag); err != nil {
+		return err
+	}
+	if err := a.clearReleaseManifestOutputs(); err != nil {
 		return err
 	}
 
@@ -1081,7 +1282,44 @@ func (a *app) publishTag(tag string) error {
 	if err := cloneApp.runHelmClassicUploads(packages, helmClassicAuth); err != nil {
 		return err
 	}
+	if len(packages) > 0 {
+		manifestPackages, err := cloneApp.persistHelmPackages(packages)
+		if err != nil {
+			return err
+		}
+		if err := cloneApp.writeReleaseManifest(tag, chartVersionFromTag(tag), manifestPackages); err != nil {
+			return err
+		}
+		if err := a.copyReleaseOutputsFrom(cloneApp); err != nil {
+			return err
+		}
+	}
 	a.log("Published %s", tag)
+	return nil
+}
+
+func (a *app) copyReleaseOutputsFrom(source *app) error {
+	if err := copyDirectory(filepath.Join(source.repoRoot, "dist", "charts"), filepath.Join(a.repoRoot, "dist", "charts")); err != nil {
+		return err
+	}
+	content, err := os.ReadFile(filepath.Join(source.repoRoot, "dist", "release-manifest.json"))
+	if err != nil {
+		return err
+	}
+	manifestPath := filepath.Join(a.repoRoot, "dist", "release-manifest.json")
+	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(manifestPath, content, 0o644)
+}
+
+func (a *app) clearReleaseManifestOutputs() error {
+	if err := os.Remove(filepath.Join(a.repoRoot, "dist", "release-manifest.json")); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err := os.RemoveAll(filepath.Join(a.repoRoot, "dist", "charts")); err != nil {
+		return err
+	}
 	return nil
 }
 

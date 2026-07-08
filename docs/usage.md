@@ -174,6 +174,8 @@ Chart-enabled commands add local Helm behavior:
   succeeds
 - when `RELEASE_HELM_CLASSIC_URL` is set, `publish` and `publish-tag` upload
   each packaged chart to `<url>/api/charts` after GoReleaser succeeds
+- chart-enabled snapshot, publish, and publish-tag flows write
+  `dist/release-manifest.json` with chart package metadata
 
 Snapshot chart packaging needs `VERSION` or an exact current tag so the chart
 version can be derived from the release tag.
@@ -205,6 +207,41 @@ query strings, fragments, or the `/api/charts` upload suffix in this URL.
 intentionally not accepted in `.release-tools.env`. If the package registry
 rejects a duplicate chart version, `release-tools` fails the upload rather than
 overwriting it.
+
+The chart release manifest currently uses this schema:
+
+```json
+{
+  "schema_version": 1,
+  "release": {
+    "tag": "v1.2.3",
+    "version": "1.2.3"
+  },
+  "artifacts": {
+    "helm_charts": [
+      {
+        "name": "myapp",
+        "version": "1.2.3",
+        "path": "dist/charts/myapp-1.2.3.tgz",
+        "sha256": "...",
+        "oci_ref": "oci://registry.example.com/myowner/charts/myapp:1.2.3",
+        "classic_url": "https://forge.example/api/packages/myowner/helm",
+        "classic_upload_url": "https://forge.example/api/packages/myowner/helm/api/charts"
+      }
+    ]
+  }
+}
+```
+
+The OCI and classic fields appear only when those targets are configured.
+Manifest chart package paths are repo-relative `dist/charts/...` paths. During
+publish commands, charts are first packaged in a temporary directory outside the
+repository so GoReleaser cannot clean them before upload. After chart pushes or
+uploads succeed, those packages are copied back into `dist/charts` before the
+manifest is written. For `publish-tag`, the chart packages and manifest are
+copied from the clean temporary tag clone back to the caller repository. The
+manifest is not yet uploaded as a release asset and does not yet merge
+GoReleaser's `dist/artifacts.json` metadata.
 
 Required for release commands:
 

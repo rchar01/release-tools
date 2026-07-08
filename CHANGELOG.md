@@ -35,6 +35,9 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `dockers_v2`, `docker_manifests`, and `docker_signs` config and require the
   matching Docker, Podman, Cosign, or configured static signing command during
   `doctor` and `tools-check`
+- added `dist/release-manifest.json` for chart-enabled snapshot, publish, and
+  publish-tag flows, recording the release tag, chart version, packaged chart
+  path, SHA-256, and configured Helm OCI or classic registry targets
 
 ### Fixed
 

@@ -161,6 +161,10 @@
   `helm registry login --password-stdin --registry-config <temporary-file>`.
 - When `RELEASE_HELM_CLASSIC_URL` is set, `publish` and `publish-tag` upload
   packaged charts to `<url>/api/charts` after GoReleaser succeeds.
+- Chart-enabled snapshot, publish, and publish-tag flows write
+  `dist/release-manifest.json` with the release tag, chart version, packaged
+  chart path, SHA-256, and configured Helm registry targets after packaging or
+  chart upload succeeds.
 - `publish-tag` publishes from a clean temporary clone of the exact tag.
 - GoReleaser must run from the release repository root.
 - unset `RELEASE_ARTIFACTS` keeps current binaries-only behavior.

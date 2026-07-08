@@ -186,6 +186,15 @@ login` with a temporary Helm registry config before pushing. Without those auth
 settings, Helm must already be authenticated. Chart signing is left for a later
 artifact orchestration phase.
 
+Chart-enabled snapshot, publish, and publish-tag flows write
+`dist/release-manifest.json` with the release tag, normalized chart version,
+packaged chart path, SHA-256, and the configured Helm OCI or classic registry
+target. Publish-time chart packages are copied back into `dist/charts` after
+remote chart publishing succeeds so manifest paths remain valid. For
+`publish-tag`, the chart packages and manifest are copied back from the
+temporary clone to the caller repository. GoReleaser artifact metadata and
+manifest upload are left for a later phase.
+
 Set `RELEASE_HELM_OCI_PLAIN_HTTP=1` only for disposable or otherwise explicitly
 trusted insecure OCI registries. It appends Helm's `--plain-http` flag to OCI
 registry login and chart pushes.
