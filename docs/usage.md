@@ -319,9 +319,10 @@ paths. During publish commands, charts are first packaged in a temporary
 directory outside the repository so GoReleaser cannot clean them before upload.
 After chart pushes or uploads succeed, those packages and `.prov` files are
 copied back into `dist/charts` before the manifest is written. For
-`publish-tag`, the chart packages, provenance files, and manifest are copied from
-the clean temporary tag clone back to the caller repository. The manifest is not
-uploaded as a release asset unless `RELEASE_MANIFEST_UPLOAD=1` is set.
+`publish-tag`, the chart packages, provenance files, GoReleaser artifact files
+referenced by the manifest, and the manifest are copied from the clean temporary tag
+clone back to the caller repository. The manifest is not uploaded as a release
+asset unless `RELEASE_MANIFEST_UPLOAD=1` is set.
 
 Set `RELEASE_MANIFEST_UPLOAD=1` to upload `dist/release-manifest.json` as a
 forge release asset after GoReleaser publishing, release body patching, chart

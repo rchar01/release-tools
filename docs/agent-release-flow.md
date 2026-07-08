@@ -190,6 +190,8 @@ Reason:
   `dist/charts` before writing the manifest so recorded paths remain valid
 - `publish-tag` copies the chart packages, provenance files, and manifest out of
   the clean temporary tag clone before the clone is removed
+- `publish-tag` also copies GoReleaser artifact files referenced by the manifest
+  back to the caller repo so local manifest paths remain valid after cleanup
 - OCI chart signing uses Cosign or Notation against the immutable digest reported
   by Helm after `helm push`
 

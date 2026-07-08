@@ -1602,24 +1602,22 @@ func (a *app) publishTag(tag string) error {
 	if err := cloneApp.runHelmClassicUploads(packages, helmClassicAuth); err != nil {
 		return err
 	}
-	if len(packages) > 0 || cloneApp.goreleaserArtifactsExist() {
-		manifestPackages := []string(nil)
+	manifestPackages := []string(nil)
+	if len(packages) > 0 {
 		var err error
-		if len(packages) > 0 {
-			manifestPackages, err = cloneApp.persistHelmPackages(packages)
-			if err != nil {
-				return err
-			}
-		}
-		if err := cloneApp.writeReleaseManifest(tag, chartVersionFromTag(tag), manifestPackages, rebaseHelmOCIPushResults(ociResults, manifestPackages)); err != nil {
+		manifestPackages, err = cloneApp.persistHelmPackages(packages)
+		if err != nil {
 			return err
 		}
-		if err := a.copyReleaseOutputsFrom(cloneApp); err != nil {
-			return err
-		}
-		if err := a.uploadReleaseManifestIfEnabled(tag, token); err != nil {
-			return err
-		}
+	}
+	if err := cloneApp.writeReleaseManifest(tag, chartVersionFromTag(tag), manifestPackages, rebaseHelmOCIPushResults(ociResults, manifestPackages)); err != nil {
+		return err
+	}
+	if err := a.copyReleaseOutputsFrom(cloneApp); err != nil {
+		return err
+	}
+	if err := a.uploadReleaseManifestIfEnabled(tag, token); err != nil {
+		return err
 	}
 	a.log("Published %s", tag)
 	return nil
@@ -1634,6 +1632,26 @@ func (a *app) copyReleaseOutputsFrom(source *app) error {
 	content, err := os.ReadFile(filepath.Join(source.repoRoot, "dist", "release-manifest.json"))
 	if err != nil {
 		return err
+	}
+	var manifest releaseManifest
+	if err := json.Unmarshal(content, &manifest); err != nil {
+		return err
+	}
+	for _, artifact := range manifest.Artifacts.GoReleaser {
+		if artifact.Path == "" || filepath.IsAbs(artifact.Path) {
+			continue
+		}
+		sourcePath := source.repoPath(filepath.FromSlash(artifact.Path))
+		info, err := os.Stat(sourcePath)
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			continue
+		}
+		if err := copyFile(sourcePath, a.repoPath(filepath.FromSlash(artifact.Path))); err != nil {
+			return err
+		}
 	}
 	manifestPath := filepath.Join(a.repoRoot, "dist", "release-manifest.json")
 	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o755); err != nil {

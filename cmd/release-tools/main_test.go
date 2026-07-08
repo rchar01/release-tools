@@ -1929,6 +1929,12 @@ func TestPublishTagCopiesBinaryOnlyManifestFromClone(t *testing.T) {
 	if len(manifest.Artifacts.GoReleaser) != 1 || manifest.Artifacts.GoReleaser[0].SHA256 != "def456" {
 		t.Fatalf("goreleaser artifacts = %#v, want copied binary metadata", manifest.Artifacts.GoReleaser)
 	}
+	if manifest.Artifacts.GoReleaser[0].Path != "dist/release-tools" {
+		t.Fatalf("goreleaser artifact path = %q, want copied repo-relative path", manifest.Artifacts.GoReleaser[0].Path)
+	}
+	if _, err := os.Stat(filepath.Join(repo, "dist", "release-tools")); err != nil {
+		t.Fatalf("publish-tag GoReleaser artifact was not copied back: %v", err)
+	}
 }
 
 func TestPublishTagPatchesReleaseBodyBeforeFailingHelmOCIPush(t *testing.T) {
