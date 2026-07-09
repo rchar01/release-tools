@@ -54,9 +54,7 @@ release-tools_<version>_<os>_<arch>
 Supported release binaries:
 
 - `release-tools_3.4.0_linux_amd64`
-- `release-tools_3.4.0_linux_arm64`
 - `release-tools_3.4.0_darwin_amd64`
-- `release-tools_3.4.0_darwin_arm64`
 
 For system-wide installation, use a privileged install directory instead:
 

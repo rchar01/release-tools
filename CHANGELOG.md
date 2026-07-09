@@ -16,6 +16,11 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - stopped `doctor` from executing the configured GoReleaser binary for version
   probing
 
+### Removed
+
+- removed future Linux arm64 and Darwin arm64 release binaries from the
+  GoReleaser release matrix and public install docs
+
 ## [3.4.0] - 2026-07-09
 
 ### Added

@@ -76,9 +76,7 @@ release-tools_<version>_<os>_<arch>
 Supported assets:
 
 - `release-tools_X.Y.Z_linux_amd64`
-- `release-tools_X.Y.Z_linux_arm64`
 - `release-tools_X.Y.Z_darwin_amd64`
-- `release-tools_X.Y.Z_darwin_arm64`
 - `checksums.txt`
 
 ## Quick Start

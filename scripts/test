@@ -25,32 +25,37 @@ scripts/test-errors
 .tmp/release-tools-test doctor >/dev/null
 .tmp/release-tools-test check >/dev/null
 .tmp/release-tools-test snapshot >/dev/null
-case "$(uname -s)" in
-Linux) os=linux ;;
-Darwin) os=darwin ;;
-*) printf 'unsupported install test OS: %s\n' "$(uname -s)" >&2; exit 1 ;;
-esac
-case "$(uname -m)" in
-x86_64|amd64) arch=amd64; target_suffix=v1 ;;
-arm64|aarch64) arch=arm64; target_suffix=v8.0 ;;
-*) printf 'unsupported install test architecture: %s\n' "$(uname -m)" >&2; exit 1 ;;
-esac
-release_binary="dist/release-tools_${os}_${arch}_${target_suffix}/release-tools"
-if [[ ! -x "$release_binary" ]]; then
-	printf 'missing snapshot binary for %s_%s\n' "$os" "$arch" >&2
+for target in linux_amd64_v1 darwin_amd64_v1; do
+	release_binary="dist/release-tools_${target}/release-tools"
+	if [[ ! -f "$release_binary" ]]; then
+		printf 'missing snapshot binary for %s\n' "$target" >&2
+		exit 1
+	fi
+done
+for asset in linux_amd64 darwin_amd64; do
+	if ! grep -q "release-tools_.*_${asset}" dist/artifacts.json; then
+		printf 'missing upload artifact name for %s\n' "$asset" >&2
+		exit 1
+	fi
+done
+if grep -q 'arm64' dist/artifacts.json; then
+	printf 'unexpected arm64 release artifact in dist/artifacts.json\n' >&2
 	exit 1
 fi
-if ! grep -q "release-tools_.*_${os}_${arch}" dist/artifacts.json; then
-	printf 'missing upload artifact name for %s_%s\n' "$os" "$arch" >&2
-	exit 1
+case "$(uname -s):$(uname -m)" in
+Linux:x86_64|Linux:amd64) release_binary="dist/release-tools_linux_amd64_v1/release-tools" ;;
+Darwin:x86_64|Darwin:amd64) release_binary="dist/release-tools_darwin_amd64_v1/release-tools" ;;
+*) release_binary="" ;;
+esac
+if [[ -n "$release_binary" ]]; then
+	install_bin="$ROOT_DIR/.tmp/install-bin/release-tools"
+	mkdir -p "$(dirname -- "$install_bin")"
+	cp "$release_binary" "$install_bin"
+	chmod +x "$install_bin"
+	"$install_bin" help >/dev/null
+	"$install_bin" --version >/dev/null
+	"$install_bin" completion bash >/dev/null
 fi
-install_bin="$ROOT_DIR/.tmp/install-bin/release-tools"
-mkdir -p "$(dirname -- "$install_bin")"
-cp "$release_binary" "$install_bin"
-chmod +x "$install_bin"
-"$install_bin" help >/dev/null
-"$install_bin" --version >/dev/null
-"$install_bin" completion bash >/dev/null
 notes_file="$(.tmp/release-tools-test notes v3.0.0)"
 grep -q 'RELEASE_FORGE' "$notes_file"
 rm -f "$notes_file"
