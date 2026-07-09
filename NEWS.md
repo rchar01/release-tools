@@ -2,6 +2,20 @@
 
 This file gives a short, release-oriented view of what changed between versions.
 
+## v3.4.0 - 2026-07-09
+
+- add chart-aware release orchestration with `RELEASE_ARTIFACTS=charts`, Helm
+  check/package support, OCI chart pushes, ChartMuseum-compatible uploads, and
+  Helm provenance signing
+- add digest-based OCI chart signing with `RELEASE_HELM_OCI_SIGNER=cosign`, plus
+  Podman-backed signing verification against local Zot
+- add `dist/release-manifest.json` for chart and GoReleaser artifact metadata,
+  with optional forge release asset upload through `RELEASE_MANIFEST_UPLOAD=1`
+- add GoReleaser container-image preflights for Docker, Podman, Cosign, and
+  static signing commands detected from `.goreleaser.yaml`
+- improve release verification with Helm registry, Helm OCI signing, Helm
+  provenance, and live Codeberg smoke tests
+
 ## v3.3.0 - 2026-07-02
 
 - add `RELEASE_NOTES_MODE=gnu-news` for projects that keep GNU-style

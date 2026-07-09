@@ -41,7 +41,7 @@ Linux amd64 example:
 ```bash
 mkdir -p "$HOME/.local/bin"
 curl -fsSL -o "$HOME/.local/bin/release-tools" \
-  "https://codeberg.org/rch/release-tools/releases/download/v3.3.0/release-tools_3.3.0_linux_amd64"
+  "https://codeberg.org/rch/release-tools/releases/download/v3.4.0/release-tools_3.4.0_linux_amd64"
 chmod +x "$HOME/.local/bin/release-tools"
 ```
 
@@ -53,15 +53,15 @@ release-tools_<version>_<os>_<arch>
 
 Supported release binaries:
 
-- `release-tools_3.3.0_linux_amd64`
-- `release-tools_3.3.0_linux_arm64`
-- `release-tools_3.3.0_darwin_amd64`
-- `release-tools_3.3.0_darwin_arm64`
+- `release-tools_3.4.0_linux_amd64`
+- `release-tools_3.4.0_linux_arm64`
+- `release-tools_3.4.0_darwin_amd64`
+- `release-tools_3.4.0_darwin_arm64`
 
 For system-wide installation, use a privileged install directory instead:
 
 ```bash
-sudo install -m 0755 release-tools_3.3.0_linux_amd64 /usr/local/bin/release-tools
+sudo install -m 0755 release-tools_3.4.0_linux_amd64 /usr/local/bin/release-tools
 ```
 
 ## 2. Define Release Tools Config
@@ -336,7 +336,7 @@ Required for release commands:
 
 Additionally required for `release-tools publish-tag`:
 
-- `VERSION` or a positional tag argument such as `v3.3.0`
+- `VERSION` or a positional tag argument such as `v3.4.0`
 
 ## 4. Add GoReleaser Configuration
 
@@ -505,8 +505,8 @@ release-tools doctor
 release-tools check
 release-tools snapshot
 release-tools publish
-release-tools publish-tag v3.3.0
-release-tools notes v3.3.0
+release-tools publish-tag v3.4.0
+release-tools notes v3.4.0
 ```
 
 The CLI also generates shell completion scripts:

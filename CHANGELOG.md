@@ -7,6 +7,8 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [3.4.0] - 2026-07-09
+
 ### Added
 
 - added `RELEASE_ARTIFACTS` config parsing and `doctor` reporting for artifact
