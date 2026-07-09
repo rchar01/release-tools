@@ -51,6 +51,17 @@ Consumer repositories need:
 Maintainers of this repository also need Go `1.26`, Make, and Podman for the
 container verification path.
 
+Install Cosign with your trusted package manager or the upstream release binary.
+Linux amd64 example:
+
+```bash
+curl -O -L "https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-amd64"
+sudo mv cosign-linux-amd64 /usr/local/bin/cosign
+sudo chmod +x /usr/local/bin/cosign
+
+cosign version
+```
+
 ## Installation
 
 Download the matching release binary from Codeberg and place it in a directory on
@@ -230,18 +241,8 @@ make helm-oci-signing-test
 
 This target requires a trusted
 [`cosign`](https://github.com/sigstore/cosign) on `PATH`; the dev container
-includes Cosign for containerized verification.
-
-For a local host install, use the upstream Cosign release binary or your trusted
-package manager. Linux amd64 example:
-
-```bash
-curl -O -L "https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-amd64"
-sudo mv cosign-linux-amd64 /usr/local/bin/cosign
-sudo chmod +x /usr/local/bin/cosign
-
-cosign version
-```
+includes Cosign for containerized verification. See [Requirements](#requirements)
+for local host install guidance.
 
 Run a disposable GPG-backed Helm provenance smoke test. This builds the current
 CLI, generates a temporary signing key, runs chart-enabled `release-tools
