@@ -11,6 +11,8 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - required HTTPS for classic Helm package registry uploads so Basic auth tokens
   are not sent over cleartext HTTP
+- documented self-release publishing by direct binary path to avoid trusting
+  repo-local `.tmp` executables through `PATH`
 
 ## [3.4.0] - 2026-07-09
 

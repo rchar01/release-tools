@@ -359,11 +359,13 @@ Build the current CLI and publish from the exact tag:
 
 ```bash
 make build
-PATH="$PWD/.tmp:$PATH" release-tools publish-tag vX.Y.Z
+./.tmp/release-tools publish-tag vX.Y.Z
 ```
 
 This keeps `release-tools` as the publishing frontend while avoiding reliance on
-an older installed binary during self-release bootstrapping.
+an older installed binary during self-release bootstrapping. Invoke the binary by
+path instead of prepending `.tmp` to `PATH`, so child tool resolution does not
+trust every executable in the repo-local build directory during publishing.
 
 ## License
 

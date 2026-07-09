@@ -162,10 +162,10 @@
 - Update `NEWS.md` and `CHANGELOG.md` from `Unreleased` to the release version
   before committing release prep.
 - Build the current CLI with `make build` before publishing this repository.
-- Publish with `PATH="$PWD/.tmp:$PATH" release-tools publish-tag vX.Y.Z`.
-- This intentionally uses the just-built CLI as the release frontend so
-  self-release does not depend on an older globally installed binary when
-  current config or commands rely on unreleased behavior.
+- Publish with `./.tmp/release-tools publish-tag vX.Y.Z`.
+- This intentionally invokes the just-built CLI by path so self-release does not
+  depend on an older globally installed binary, without trusting every executable
+  in the repo-local `.tmp` directory during a privileged publish.
 - Ensure `RELEASE_TOKEN`, the native forge token variable, or
   `RELEASE_TOKEN_FILE` is available before publishing.
 

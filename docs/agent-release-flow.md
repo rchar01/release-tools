@@ -337,11 +337,12 @@ repositories should install `release-tools` into `PATH` and call that command
 from the project root.
 
 When a repository uses its own CLI to release itself, build the current CLI
-before publishing and put that build first on `PATH`. Publishing should still go
-through the CLI rather than through a Make publish target:
+before publishing and invoke that binary by path. Publishing should still go
+through the CLI rather than through a Make publish target, but do not prepend a
+repo-local build directory to `PATH` for a privileged publish:
 
 ```bash
-PATH="$PWD/.tmp:$PATH" release-tools publish-tag vX.Y.Z
+./.tmp/release-tools publish-tag vX.Y.Z
 ```
 
 `scripts/test-errors` verifies the most important CLI failure messages,
