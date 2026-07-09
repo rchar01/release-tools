@@ -119,6 +119,9 @@ Publishing requires `RELEASE_TOKEN`, the native GoReleaser token variable for
 the selected forge, or environment-only `RELEASE_TOKEN_FILE` pointing at a local
 token file.
 
+Validation commands (`check` and `snapshot`) do not read token files and strip
+release-token variables before invoking GoReleaser.
+
 ## Commands
 
 | Command | Purpose |

@@ -82,7 +82,8 @@
 - `RELEASE_TOKEN_FILE` is environment-only and may point at a local file
   containing the forge token.
 - The CLI maps `RELEASE_TOKEN` to `GITEA_TOKEN`, `GITHUB_TOKEN`, or
-  `GITLAB_TOKEN` internally for GoReleaser based on `RELEASE_FORGE`.
+  `GITLAB_TOKEN` internally for publishing GoReleaser commands based on
+  `RELEASE_FORGE`.
 - Supported `RELEASE_FORGE` values are `codeberg`, `gitea`, `forgejo`,
   `github`, and `gitlab`.
 - `RELEASE_ARTIFACTS` defaults to `binaries`; supported values are `binaries`
@@ -201,7 +202,8 @@
   so repo-relative manifest paths remain valid locally.
 - GoReleaser must run from the release repository root.
 - unset `RELEASE_ARTIFACTS` keeps current binaries-only behavior.
-- `check` and `snapshot` paths must not require `RELEASE_TOKEN`.
+- `check` and `snapshot` paths must not require `RELEASE_TOKEN` and must not
+  pass release-token variables through to GoReleaser.
 - CLI release notes currently support `RELEASE_NOTES_MODE=news-md`, `gnu-news`,
   and `none`.
 - CLI release body patching currently supports `RELEASE_BODY_MODE=patch` and `none`.
@@ -218,8 +220,9 @@
 ## Tooling / Env Notes
 - the CLI requires a resolvable `goreleaser`.
 - release body patching uses the Go HTTP client.
-- token resolution reads `RELEASE_TOKEN`, the native GoReleaser token variable
-  for `RELEASE_FORGE`, or environment-only `RELEASE_TOKEN_FILE` in that order.
+- publishing token resolution reads `RELEASE_TOKEN`, the native GoReleaser token
+  variable for `RELEASE_FORGE`, or environment-only `RELEASE_TOKEN_FILE` in that
+  order.
 - GoReleaser resolution checks `GORELEASER_BIN`, then common install locations.
 - Helm is required only when `RELEASE_ARTIFACTS` includes `charts`.
 - Helm chart provenance signing uses Helm's built-in `helm package --sign` with

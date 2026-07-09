@@ -81,9 +81,11 @@ implementation does three useful things when invoking GoReleaser:
   path in `doctor` without executing GoReleaser for version probing
 - ensures GoReleaser runs from the repository root
 - resolves `RELEASE_TOKEN`, a forge-native token variable, or
-  environment-only `RELEASE_TOKEN_FILE`
+  environment-only `RELEASE_TOKEN_FILE` for publishing commands
 - maps the resolved token to the forge-native token environment only for the
-  GoReleaser process
+  publishing GoReleaser process
+- strips release-token variables from non-publishing GoReleaser checks and
+  snapshots
 
 This removes environment drift between local shells and CI.
 

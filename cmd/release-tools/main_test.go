@@ -2495,7 +2495,10 @@ func TestRunGoreleaserUsesInjectedRunner(t *testing.T) {
 			"GORELEASER_BIN":             "/tools/goreleaser",
 			"GORELEASER_CONFIG":          "release.yml",
 			"RELEASE_FORGE":              "github",
+			"RELEASE_TOKEN":              "release-token",
+			"GITEA_TOKEN":                "gitea-token",
 			"GITHUB_TOKEN":               "github-token",
+			"GITLAB_TOKEN":               "gitlab-token",
 			"RELEASE_HELM_OCI_PASSWORD":  "oci-secret",
 			"RELEASE_HELM_CLASSIC_TOKEN": "classic-secret",
 		},
@@ -2521,11 +2524,65 @@ func TestRunGoreleaserUsesInjectedRunner(t *testing.T) {
 	if strings.Join(cmd.Args, "\x00") != strings.Join(wantArgs, "\x00") {
 		t.Fatalf("Args = %#v, want %#v", cmd.Args, wantArgs)
 	}
-	if !envContains(cmd.Env, "GITHUB_TOKEN=github-token") {
-		t.Fatalf("Env does not contain mapped GitHub token")
+	for _, secret := range []string{
+		"RELEASE_TOKEN=release-token",
+		"GITEA_TOKEN=gitea-token",
+		"GITHUB_TOKEN=github-token",
+		"GITLAB_TOKEN=gitlab-token",
+		"RELEASE_HELM_OCI_PASSWORD=oci-secret",
+		"RELEASE_HELM_CLASSIC_TOKEN=classic-secret",
+	} {
+		if envContains(cmd.Env, secret) {
+			t.Fatalf("GoReleaser environment contains secret %s", secret)
+		}
 	}
-	if envContains(cmd.Env, "RELEASE_HELM_OCI_PASSWORD=oci-secret") || envContains(cmd.Env, "RELEASE_HELM_CLASSIC_TOKEN=classic-secret") {
-		t.Fatalf("GoReleaser environment contains Helm registry secret")
+}
+
+func TestRunGoreleaserWithTokenInjectsOnlyMappedToken(t *testing.T) {
+	fake := &fakeCommandRunner{}
+	a := &app{
+		repoRoot: "/repo",
+		env: map[string]string{
+			"GORELEASER_BIN":             "/tools/goreleaser",
+			"GORELEASER_CONFIG":          "release.yml",
+			"RELEASE_FORGE":              "github",
+			"RELEASE_TOKEN":              "ambient-release-token",
+			"GITEA_TOKEN":                "ambient-gitea-token",
+			"GITHUB_TOKEN":               "ambient-github-token",
+			"GITLAB_TOKEN":               "ambient-gitlab-token",
+			"RELEASE_HELM_OCI_PASSWORD":  "oci-secret",
+			"RELEASE_HELM_CLASSIC_TOKEN": "classic-secret",
+		},
+		commands: fake,
+		stdout:   ioDiscard(),
+		stderr:   ioDiscard(),
+	}
+
+	if err := a.runGoreleaserWithToken("publish-token", "release", "--clean"); err != nil {
+		t.Fatal(err)
+	}
+	if len(fake.runCommands) != 1 {
+		t.Fatalf("run commands = %d, want 1", len(fake.runCommands))
+	}
+	cmd := fake.runCommands[0]
+	wantArgs := []string{"--config", "release.yml", "release", "--clean"}
+	if strings.Join(cmd.Args, "\x00") != strings.Join(wantArgs, "\x00") {
+		t.Fatalf("Args = %#v, want %#v", cmd.Args, wantArgs)
+	}
+	if !envContains(cmd.Env, "GITHUB_TOKEN=publish-token") {
+		t.Fatalf("Env does not contain mapped publish token")
+	}
+	for _, secret := range []string{
+		"RELEASE_TOKEN=ambient-release-token",
+		"GITEA_TOKEN=ambient-gitea-token",
+		"GITHUB_TOKEN=ambient-github-token",
+		"GITLAB_TOKEN=ambient-gitlab-token",
+		"RELEASE_HELM_OCI_PASSWORD=oci-secret",
+		"RELEASE_HELM_CLASSIC_TOKEN=classic-secret",
+	} {
+		if envContains(cmd.Env, secret) {
+			t.Fatalf("GoReleaser environment contains secret %s", secret)
+		}
 	}
 }
 
@@ -2673,16 +2730,6 @@ func TestResolveTokenEnvironmentPrecedesTokenFile(t *testing.T) {
 	}
 	if token != "release-token" {
 		t.Fatalf("token = %q, want release-token", token)
-	}
-}
-
-func TestResolveOptionalTokenDoesNotReadTokenFile(t *testing.T) {
-	tokenFile := filepath.Join(t.TempDir(), "token")
-	writeFile(t, tokenFile, "file-token\n")
-
-	a := &app{env: map[string]string{"RELEASE_FORGE": "gitea", "RELEASE_TOKEN_FILE": tokenFile}}
-	if token, ok := a.resolveOptionalToken(); ok {
-		t.Fatalf("optional token = %q, want no token", token)
 	}
 }
 

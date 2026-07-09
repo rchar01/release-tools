@@ -487,11 +487,16 @@ Token resolution order is:
 path. The file content is read only for `publish` and `publish-tag`; trailing
 newlines are trimmed and the token is not printed.
 
-`release-tools` maps that internally to the token variable GoReleaser expects:
+For publishing commands, `release-tools` maps the resolved token internally to
+the token variable GoReleaser expects:
 
 - `RELEASE_FORGE=codeberg`, `gitea`, or `forgejo`: `GITEA_TOKEN`
 - `RELEASE_FORGE=github`: `GITHUB_TOKEN`
 - `RELEASE_FORGE=gitlab`: `GITLAB_TOKEN`
+
+Non-publishing validation commands such as `check` and `snapshot` do not read
+`RELEASE_TOKEN_FILE` and do not pass release token variables through to
+GoReleaser.
 
 ## 8. Runtime Contract And Command Surface
 

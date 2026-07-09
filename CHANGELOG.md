@@ -17,6 +17,8 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   probing
 - kept `RELEASE_TOKEN_FILE` environment-only so repo-local config cannot choose
   operator-local token files
+- kept release-token variables out of non-publishing GoReleaser `check` and
+  `snapshot` runs
 
 ### Removed
 

@@ -748,9 +748,6 @@ func (a *app) runGoreleaser(args ...string) error {
 	}
 	cmdArgs := append([]string{"--config", a.goreleaserConfig()}, args...)
 	cmd := runner.Command{Dir: a.repoRoot, Name: goreleaserBin, Args: cmdArgs, Env: a.goreleaserEnviron(), Stdout: a.stdout, Stderr: a.stderr}
-	if token, ok := a.resolveOptionalToken(); ok {
-		cmd.Env = append(cmd.Env, a.goreleaserTokenEnv()+"="+token)
-	}
 	return a.commandRunner().Run(cmd)
 }
 
@@ -1683,6 +1680,10 @@ func (a *app) environ() []string {
 
 func (a *app) goreleaserEnviron() []string {
 	return a.environExcept(map[string]bool{
+		"RELEASE_TOKEN":              true,
+		"GITEA_TOKEN":                true,
+		"GITHUB_TOKEN":               true,
+		"GITLAB_TOKEN":               true,
 		"RELEASE_HELM_OCI_PASSWORD":  true,
 		"RELEASE_HELM_CLASSIC_TOKEN": true,
 	})
@@ -2247,13 +2248,6 @@ func expandTokenFilePath(path string) string {
 		return home
 	}
 	return path
-}
-
-func (a *app) resolveOptionalToken() (string, bool) {
-	if _, err := a.releaseForge(); err != nil {
-		return "", false
-	}
-	return a.resolveEnvironmentToken()
 }
 
 func (a *app) resolveEnvironmentToken() (string, bool) {
