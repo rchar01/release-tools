@@ -77,8 +77,8 @@ implementation does three useful things when invoking GoReleaser:
 
 - uses Cobra and Fang for help, version flags, and generated completions
 - resolves the GoReleaser binary from common install locations
-- reports the installed `release-tools` version and resolved GoReleaser version
-  in `doctor`
+- reports the installed `release-tools` version and resolved GoReleaser binary
+  path in `doctor` without executing GoReleaser for version probing
 - ensures GoReleaser runs from the repository root
 - resolves `RELEASE_TOKEN`, a forge-native token variable, or
   `RELEASE_TOKEN_FILE`

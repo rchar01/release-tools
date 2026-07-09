@@ -613,7 +613,6 @@ func (a *app) doctor() error {
 	if err != nil {
 		return err
 	}
-	goreleaserVersion := resolveGoreleaserVersion(a.commandRunner(), goreleaserBin)
 	containerConfig, err := a.detectGoreleaserContainerConfig()
 	if err != nil {
 		return err
@@ -629,7 +628,7 @@ func (a *app) doctor() error {
 	a.log("Forge API URL: %s", a.releaseAPIURL())
 	a.log("GoReleaser config: %s", config)
 	a.log("GoReleaser binary: %s", goreleaserBin)
-	a.log("GoReleaser version: %s", goreleaserVersion)
+	a.log("GoReleaser version: not probed by doctor")
 	if containerConfig.enabled() {
 		a.log("GoReleaser container config: %s", strings.Join(containerConfig.keys, ", "))
 		if tools := containerConfig.toolNames(); len(tools) > 0 {
@@ -667,30 +666,6 @@ func (a *app) doctor() error {
 	a.log("Release manifest upload: %t", a.manifestUpload())
 	a.log("release-tools configuration looks valid")
 	return nil
-}
-
-func resolveGoreleaserVersion(r runner.Runner, goreleaserBin string) string {
-	if r == nil {
-		r = runner.OSRunner{}
-	}
-	output, err := r.CombinedOutput(runner.NewCommand("", goreleaserBin, "--version"))
-	if err != nil {
-		return "unknown"
-	}
-	if version := parseGoreleaserVersion(string(output)); version != "" {
-		return version
-	}
-	return "unknown"
-}
-
-func parseGoreleaserVersion(output string) string {
-	for _, raw := range strings.Split(strings.ReplaceAll(output, "\r\n", "\n"), "\n") {
-		line := strings.TrimSpace(raw)
-		if version, ok := strings.CutPrefix(line, "GitVersion:"); ok {
-			return strings.TrimSpace(version)
-		}
-	}
-	return ""
 }
 
 func (a *app) ensureTools() error {

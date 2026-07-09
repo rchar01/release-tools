@@ -2445,21 +2445,11 @@ func TestUnknownCommandReportsError(t *testing.T) {
 	}
 }
 
-func TestParseGoreleaserVersion(t *testing.T) {
-	output := `goreleaser: Release engineering, simplified.
-
-GitVersion:    v2.16.0
-GitCommit:     unknown
-`
-	if got := parseGoreleaserVersion(output); got != "v2.16.0" {
-		t.Fatalf("parseGoreleaserVersion = %q, want v2.16.0", got)
-	}
-}
-
-func TestDoctorUsesInjectedRunnerForGoreleaserVersion(t *testing.T) {
+func TestDoctorDoesNotExecuteGoreleaserForVersion(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, ".goreleaser.yaml"), "version: 2\n")
-	fake := &fakeCommandRunner{combinedOutput: []byte("GitVersion: v2.16.0\n")}
+	fake := &fakeCommandRunner{}
+	var stdout bytes.Buffer
 	a := &app{
 		repoRoot: dir,
 		env: map[string]string{
@@ -2470,22 +2460,18 @@ func TestDoctorUsesInjectedRunnerForGoreleaserVersion(t *testing.T) {
 			"GORELEASER_BIN":     "/tools/goreleaser",
 		},
 		commands: fake,
-		stdout:   ioDiscard(),
+		stdout:   &stdout,
 		stderr:   ioDiscard(),
 	}
 
 	if err := a.doctor(); err != nil {
 		t.Fatal(err)
 	}
-	if len(fake.combinedOutputCommands) != 1 {
-		t.Fatalf("combined output commands = %d, want 1", len(fake.combinedOutputCommands))
+	if len(fake.combinedOutputCommands) != 0 {
+		t.Fatalf("combined output commands = %d, want 0", len(fake.combinedOutputCommands))
 	}
-	cmd := fake.combinedOutputCommands[0]
-	if cmd.Name != "/tools/goreleaser" {
-		t.Fatalf("Name = %q, want /tools/goreleaser", cmd.Name)
-	}
-	if len(cmd.Args) != 1 || cmd.Args[0] != "--version" {
-		t.Fatalf("Args = %#v, want [--version]", cmd.Args)
+	if !strings.Contains(stdout.String(), "[INFO] GoReleaser version: not probed by doctor\n") {
+		t.Fatalf("doctor output = %q, want not-probed GoReleaser version", stdout.String())
 	}
 }
 
