@@ -21,11 +21,16 @@ RUN apt-get update \
 
 RUN set -eu; \
     case "${TARGETARCH:-amd64}" in \
-      amd64|arm64) go_arch="${TARGETARCH:-amd64}" ;; \
+      amd64) go_arch=amd64; go_sha256=1153d3d50e0ac764b447adfe05c2bcf08e889d42a02e0fe0259bd47f6733ad7f ;; \
+      arm64) go_arch=arm64; go_sha256=ef758ae7c6cf9267c9c0ef080b8965f453d89ab2d25d9eb22de4405925238768 ;; \
       *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
-    curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${go_arch}.tar.gz" \
-      | tar -xz -C /usr/local; \
+    curl -fsSL \
+      -o /tmp/go.tar.gz \
+      "https://go.dev/dl/go${GO_VERSION}.linux-${go_arch}.tar.gz"; \
+    printf '%s  %s\n' "${go_sha256}" /tmp/go.tar.gz | sha256sum -c -; \
+    tar -xz -C /usr/local -f /tmp/go.tar.gz; \
+    rm -f /tmp/go.tar.gz; \
     ln -s /usr/local/go/bin/go /usr/local/bin/go; \
     ln -s /usr/local/go/bin/gofmt /usr/local/bin/gofmt
 
@@ -46,21 +51,29 @@ RUN set -eu; \
 
 RUN set -eu; \
     case "${TARGETARCH:-amd64}" in \
-      amd64) goreleaser_arch=x86_64 ;; \
-      arm64) goreleaser_arch=arm64 ;; \
+      amd64) goreleaser_arch=x86_64; goreleaser_sha256=eaae05b5eba07533bd0f06846b68c808399504784df00c62eb219541fc04e5e2 ;; \
+      arm64) goreleaser_arch=arm64; goreleaser_sha256=0102d974373fcdeb77042d1f5897caffa193be36620fdc6c1da43a01ef8e10d3 ;; \
       *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
-    curl -fsSL "https://github.com/goreleaser/goreleaser/releases/download/v${GORELEASER_VERSION}/goreleaser_Linux_${goreleaser_arch}.tar.gz" \
-      | tar -xz -C /usr/local/bin goreleaser
+    curl -fsSL \
+      -o /tmp/goreleaser.tar.gz \
+      "https://github.com/goreleaser/goreleaser/releases/download/v${GORELEASER_VERSION}/goreleaser_Linux_${goreleaser_arch}.tar.gz"; \
+    printf '%s  %s\n' "${goreleaser_sha256}" /tmp/goreleaser.tar.gz | sha256sum -c -; \
+    tar -xz -C /usr/local/bin -f /tmp/goreleaser.tar.gz goreleaser; \
+    rm -f /tmp/goreleaser.tar.gz
 
 RUN set -eu; \
     case "${TARGETARCH:-amd64}" in \
-      amd64|arm64) helm_arch="${TARGETARCH:-amd64}" ;; \
+      amd64) helm_arch=amd64; helm_sha256=9adafecab4d406853bba163a70e9f104f47dbbf65ce24b7653bae7e36150bcb6 ;; \
+      arm64) helm_arch=arm64; helm_sha256=78803142087a0069fa4b50d3f32a84d3ef25c14d1ee8a40fbccf86a6216d2f36 ;; \
       *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
-    curl -fsSL "https://get.helm.sh/helm-v${HELM_VERSION}-linux-${helm_arch}.tar.gz" \
-      | tar -xz -C /tmp "linux-${helm_arch}/helm"; \
+    curl -fsSL \
+      -o /tmp/helm.tar.gz \
+      "https://get.helm.sh/helm-v${HELM_VERSION}-linux-${helm_arch}.tar.gz"; \
+    printf '%s  %s\n' "${helm_sha256}" /tmp/helm.tar.gz | sha256sum -c -; \
+    tar -xz -C /tmp -f /tmp/helm.tar.gz "linux-${helm_arch}/helm"; \
     mv "/tmp/linux-${helm_arch}/helm" /usr/local/bin/helm; \
-    rm -rf "/tmp/linux-${helm_arch}"
+    rm -rf "/tmp/linux-${helm_arch}" /tmp/helm.tar.gz
 
 WORKDIR /workspace

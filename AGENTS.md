@@ -236,6 +236,8 @@
 - Dev-container verification uses Podman through `scripts/in-container`; the dev
   container is the source of required development tools, including Helm and
   Cosign.
+- Dev-container downloaded release-tool archives are verified with pinned
+  SHA-256 checksums before installation.
 
 ## Editing Notes
 - When changing documented behavior, update the matching docs in `docs/usage.md` and `docs/agent-release-flow.md`.

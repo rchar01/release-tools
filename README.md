@@ -293,6 +293,9 @@ Run the same checks inside the dev container:
 make container-test
 ```
 
+The dev container verifies pinned SHA-256 checksums before installing downloaded
+Go, GoReleaser, Helm, and Cosign release artifacts.
+
 Run Podman-backed Helm registry smoke tests against local Zot and ChartMuseum
 containers:
 

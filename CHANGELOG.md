@@ -21,6 +21,8 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `snapshot` runs
 - removed the unverified Cosign binary download from the Helm OCI signing smoke
   test and made checksum-verified Cosign a dev-container dependency
+- verified pinned Go, GoReleaser, and Helm archive checksums during dev-container
+  builds
 
 ### Removed
 

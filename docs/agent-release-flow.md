@@ -330,6 +330,9 @@ This repo uses a dev container as the reproducible test toolbox:
 make container-test
 ```
 
+The dev container verifies pinned SHA-256 checksums before installing downloaded
+Go, GoReleaser, Helm, and Cosign release artifacts.
+
 For local verification outside the container, use:
 
 ```bash
