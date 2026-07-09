@@ -141,6 +141,7 @@
   - `make container-test`
   - `make helm-registry-test` for Podman-backed Helm registry smoke tests
   - `make helm-oci-signing-test` for Podman-backed Helm OCI Cosign smoke tests
+    with trusted `cosign` available on `PATH`
   - `make helm-provenance-test` for disposable GPG-backed Helm provenance smoke
     tests
   - `make codeberg-smoke-test` for live Codeberg release, manifest asset, and
@@ -233,7 +234,8 @@
   or `RELEASE_HELM_OCI_SIGNER=cosign` is configured.
 - Go baseline is Go 1.26 with toolchain `go1.26.4`.
 - Dev-container verification uses Podman through `scripts/in-container`; the dev
-  container is the source of required development tools, including Helm.
+  container is the source of required development tools, including Helm and
+  Cosign.
 
 ## Editing Notes
 - When changing documented behavior, update the matching docs in `docs/usage.md` and `docs/agent-release-flow.md`.

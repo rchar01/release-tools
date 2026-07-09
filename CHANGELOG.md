@@ -19,6 +19,8 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   operator-local token files
 - kept release-token variables out of non-publishing GoReleaser `check` and
   `snapshot` runs
+- removed the unverified Cosign binary download from the Helm OCI signing smoke
+  test and made checksum-verified Cosign a dev-container dependency
 
 ### Removed
 

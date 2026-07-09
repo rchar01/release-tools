@@ -6,9 +6,8 @@ cd "$ROOT_DIR"
 
 PODMAN="${PODMAN:-podman}"
 ZOT_IMAGE="${ZOT_IMAGE:-ghcr.io/project-zot/zot-minimal:v2.1.18}"
-COSIGN_VERSION="${COSIGN_VERSION:-2.4.1}"
 
-for tool in "$PODMAN" curl git go helm; do
+for tool in "$PODMAN" cosign curl git go helm; do
 	if ! command -v "$tool" >/dev/null 2>&1; then
 		printf 'required tool not found: %s\n' "$tool" >&2
 		exit 1
@@ -38,36 +37,9 @@ wait_for_http() {
 	printf 'timed out waiting for %s\n' "$url" >&2
 	return 1
 }
-
-cosign_arch() {
-	case "$(uname -m)" in
-	x86_64|amd64) printf 'amd64\n' ;;
-	aarch64|arm64) printf 'arm64\n' ;;
-	*)
-		printf 'unsupported cosign architecture: %s\n' "$(uname -m)" >&2
-		exit 1
-		;;
-	esac
-}
-
-ensure_cosign() {
-	if command -v cosign >/dev/null 2>&1; then
-		command -v cosign
-		return 0
-	fi
-	local arch
-	arch="$(cosign_arch)"
-	mkdir -p "$bin_dir"
-	curl -fsSL \
-		"https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-${arch}" \
-		-o "$bin_dir/cosign"
-	chmod +x "$bin_dir/cosign"
-	printf '%s\n' "$bin_dir/cosign"
-}
-
 rm -rf "$test_root"
 mkdir -p "$bin_dir" "$repo_dir/charts/demo" "$ROOT_DIR/.tmp/go-build" "$ROOT_DIR/.tmp/go-cache"
-cosign_bin="$(ensure_cosign)"
+cosign_bin="$(command -v cosign)"
 
 CGO_ENABLED=0 \
 	GOTMPDIR="$ROOT_DIR/.tmp/go-build" \

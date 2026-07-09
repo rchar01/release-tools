@@ -308,6 +308,9 @@ digest, and verifies the signature from a clean environment:
 make helm-oci-signing-test
 ```
 
+This target requires a trusted `cosign` on `PATH`; the dev container includes
+Cosign for containerized verification.
+
 Run a disposable GPG-backed Helm provenance smoke test. This builds the current
 CLI, generates a temporary signing key, runs chart-enabled `release-tools
 snapshot`, and verifies the signed chart with `helm verify`:
