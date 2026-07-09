@@ -170,6 +170,8 @@ Reason:
   password file path instead
 - OCI chart signing is digest-only; signing fails if Helm does not report a
   digest, because signing mutable chart tags would provide weak verification
+- the stable OCI chart signing backend is Cosign; other signing tools need their
+  own verification model before they become public config
 - classic package uploads use the ChartMuseum-compatible `/api/charts` endpoint
   rather than a Helm plugin
 - classic package uploads use documented Basic auth with a username plus an
@@ -194,6 +196,11 @@ Reason:
   back to the caller repo so local manifest paths remain valid after cleanup
 - OCI chart signing uses Cosign against the immutable digest reported by Helm
   after `helm push`
+
+The toolkit intentionally does not provide a generic `RELEASE_SIGN_MODE` setting.
+Signing remains artifact-specific: GoReleaser owns binary and container signing
+configured in `.goreleaser.yaml`, Helm provenance owns packaged chart file
+signing, and `RELEASE_HELM_OCI_SIGNER=cosign` owns OCI chart digest signing.
 
 ### Go Preflight Is Optional
 
@@ -342,7 +349,7 @@ PATH="$PWD/.tmp:$PATH" release-tools publish-tag vX.Y.Z
 including missing release config, missing tag, invalid `GORELEASER_BIN`, and
 missing release notes source.
 
-## Recommended Next Improvements
+## Future Work
 
-- add integration coverage around `publish-tag` and release body patching
-- document consumer-side installer patterns with a concrete example repo
+Deferred ideas and intentionally out-of-scope directions are tracked in
+[`future-work.md`](future-work.md).

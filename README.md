@@ -255,6 +255,8 @@ Documentation:
 - [`docs/usage.md`](docs/usage.md): consumer integration contract
 - [`docs/agent-release-flow.md`](docs/agent-release-flow.md): release-flow
   rationale and maintainer/agent notes
+- [`docs/future-work.md`](docs/future-work.md): deferred ideas and intentionally
+  out-of-scope directions
 
 ## Maintainer Workflow
 
