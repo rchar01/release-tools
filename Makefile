@@ -8,10 +8,13 @@ BIN_PATH := $(TMP_DIR)/$(BIN)
 GO_TMP_DIR := $(CURDIR)/$(TMP_DIR)/go-build
 GO_CACHE_DIR := $(CURDIR)/$(TMP_DIR)/go-cache
 GO_ENV := CGO_ENABLED=0 GOTMPDIR=$(GO_TMP_DIR) GOCACHE=$(GO_CACHE_DIR)
-LD_FLAGS := -X main.releaseToolsVersion=$(VERSION)
+RELEASE_TOOLS_BUILD_VERSION := $(VERSION)
+unexport VERSION
+export RELEASE_TOOLS_BUILD_VERSION
+LD_FLAGS := -X main.releaseToolsVersion=$$RELEASE_TOOLS_BUILD_VERSION
 RELEASE_TOOLS ?= $(GO_ENV) go run -ldflags "$(LD_FLAGS)" ./cmd/release-tools
 
-.PHONY: help build test verify container-test helm-registry-test helm-oci-signing-test helm-provenance-test codeberg-smoke-test check snapshot clean
+.PHONY: help check-build-version build test verify container-test helm-registry-test helm-oci-signing-test helm-provenance-test codeberg-smoke-test check snapshot clean
 
 ## Show available maintainer targets
 help:
@@ -29,9 +32,16 @@ help:
 	' $(MAKEFILE_LIST) | sort
 
 ## Build the release-tools CLI into .tmp/
-build:
+build: check-build-version
 	mkdir -p "$(GO_TMP_DIR)" "$(GO_CACHE_DIR)"
 	$(GO_ENV) go build -ldflags "$(LD_FLAGS)" -o "$(BIN_PATH)" ./cmd/release-tools
+
+check-build-version:
+	@case "$$RELEASE_TOOLS_BUILD_VERSION" in \
+		""|*[!A-Za-z0-9._+:/@-]*) \
+			printf '%s\n' 'VERSION contains unsupported characters for Go linker flags' >&2; \
+			exit 1;; \
+	esac
 
 ## Run the full local verification suite
 test:
@@ -61,12 +71,12 @@ codeberg-smoke-test:
 	scripts/test-codeberg-smoke
 
 ## Validate GoReleaser configuration
-check:
+check: check-build-version
 	mkdir -p "$(GO_TMP_DIR)" "$(GO_CACHE_DIR)"
 	$(RELEASE_TOOLS) check
 
 ## Build a local snapshot release
-snapshot:
+snapshot: check-build-version
 	mkdir -p "$(GO_TMP_DIR)" "$(GO_CACHE_DIR)"
 	$(RELEASE_TOOLS) snapshot
 

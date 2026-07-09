@@ -11,6 +11,38 @@ export GOCACHE="${GOCACHE:-$ROOT_DIR/.tmp/go-cache}"
 rm -rf dist
 bash -n scripts/*
 shellcheck scripts/*
+injection_marker="$ROOT_DIR/.tmp/make-version-injection"
+rm -f "$injection_marker"
+# shellcheck disable=SC2016
+make_version_payload='v";touch$${IFS}.tmp/make-version-injection;#'
+if VERSION="$make_version_payload" make build >/dev/null 2>&1; then
+	:
+fi
+if [[ -e "$injection_marker" ]]; then
+	printf 'Makefile VERSION shell injection created %s\n' "$injection_marker" >&2
+	exit 1
+fi
+if VERSION='v1 -X main.releaseToolsVersion=pwned' make build >/dev/null 2>&1; then
+	printf 'Makefile accepted VERSION that smuggles Go linker flags\n' >&2
+	exit 1
+fi
+version_env_log="$ROOT_DIR/.tmp/make-version-env"
+version_env_stub="$ROOT_DIR/.tmp/make-release-tools-env-check"
+rm -f "$version_env_log"
+cat >"$version_env_stub" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "${VERSION-unset}" >"$MAKE_VERSION_ENV_LOG"
+EOF
+chmod +x "$version_env_stub"
+MAKE_VERSION_ENV_LOG="$version_env_log" \
+	VERSION=make-version-leak \
+	RELEASE_TOOLS="$version_env_stub" \
+	make check >/dev/null
+if [[ "$(<"$version_env_log")" != unset ]]; then
+	printf 'Makefile leaked VERSION into release-tools command environment\n' >&2
+	exit 1
+fi
 go test ./...
 go build -o .tmp/release-tools-test ./cmd/release-tools
 .tmp/release-tools-test help >/dev/null
