@@ -41,89 +41,17 @@
 - `scripts/`: development and verification helpers
 
 ## Public Contract
-- Supported caller-provided variables are:
-  - `RELEASE_CONFIG_FILE`
-  - `RELEASE_PROJECT`
-  - `RELEASE_FORGE`
-  - `RELEASE_OWNER`
-  - `RELEASE_REPO`
-  - `RELEASE_API_URL`
-  - `RELEASE_ARTIFACTS`
-  - `RELEASE_HELM_CHART_DIRS`
-  - `RELEASE_HELM_VERSION_FROM`
-  - `RELEASE_HELM_APP_VERSION_FROM`
-  - `RELEASE_HELM_OCI_REPOSITORY`
-  - `RELEASE_HELM_OCI_USERNAME`
-  - `RELEASE_HELM_OCI_PASSWORD_FILE`
-  - `RELEASE_HELM_OCI_PLAIN_HTTP`
-  - `RELEASE_HELM_OCI_SIGNER`
-  - `RELEASE_HELM_OCI_SIGN_ARGS`
-  - `RELEASE_HELM_CLASSIC_URL`
-  - `RELEASE_HELM_CLASSIC_USERNAME`
-  - `RELEASE_HELM_CLASSIC_TOKEN_FILE`
-  - `RELEASE_HELM_PROVENANCE`
-  - `RELEASE_HELM_GPG_KEY`
-  - `RELEASE_HELM_GPG_KEYRING`
-  - `RELEASE_NOTES_SOURCE`
-  - `RELEASE_NOTES_MODE`
-  - `RELEASE_BODY_MODE`
-  - `RELEASE_MANIFEST_UPLOAD`
-  - `GORELEASER_CONFIG`
-  - `GORELEASER_BIN`
-  - `RELEASE_REQUIRE_GO`
-  - `RELEASE_TOKEN_FILE`
-  - `RELEASE_TOKEN`
-  - `RELEASE_HELM_OCI_PASSWORD`
-  - `RELEASE_HELM_CLASSIC_TOKEN`
-  - `VERSION`
-- `.release-tools.env` is the default repo-local config file.
-- Environment variables override `.release-tools.env` values.
-- `RELEASE_TOKEN` is the public forge-token variable.
-- `RELEASE_TOKEN_FILE` is environment-only and may point at a local file
-  containing the forge token.
-- The CLI maps `RELEASE_TOKEN` to `GITEA_TOKEN`, `GITHUB_TOKEN`, or
-  `GITLAB_TOKEN` internally for publishing GoReleaser commands based on
-  `RELEASE_FORGE`.
-- Supported `RELEASE_FORGE` values are `codeberg`, `gitea`, `forgejo`,
-  `github`, and `gitlab`.
-- `RELEASE_ARTIFACTS` defaults to `binaries`; supported values are `binaries`
-  and `charts`.
-- `RELEASE_HELM_CHART_DIRS` is required when `RELEASE_ARTIFACTS` includes
-  `charts`.
-- Supported Helm version source values are currently `tag` only.
-- `RELEASE_HELM_OCI_REPOSITORY` enables `helm push` to an OCI repository during
-  `publish` and `publish-tag`; Helm registry authentication can be caller-owned
-  or configured explicitly with the Helm OCI auth variables.
-- `RELEASE_HELM_OCI_USERNAME` with `RELEASE_HELM_OCI_PASSWORD_FILE` or
-  environment-only `RELEASE_HELM_OCI_PASSWORD` makes the CLI run
-  `helm registry login` with a temporary registry config before OCI pushes.
-- `RELEASE_HELM_OCI_PLAIN_HTTP=1` appends Helm's `--plain-http` flag to OCI
-  registry login and chart pushes and is intended only for explicitly trusted
-  insecure registries.
-- `RELEASE_HELM_OCI_SIGNER=cosign` signs pushed OCI charts by the
-  immutable digest reported by Helm after `helm push`; signing fails if Helm does
-  not report a digest.
-- `RELEASE_HELM_OCI_SIGN_ARGS` appends non-secret arguments to the selected OCI
-  chart signing command before the digest reference.
-- `RELEASE_HELM_OCI_PASSWORD` is environment-only and is intentionally not a
-  supported `.release-tools.env` key.
-- `RELEASE_HELM_CLASSIC_URL` enables raw Helm chart upload to a
-  ChartMuseum-compatible classic Helm package registry, including Forgejo/Gitea
-  package registries, during `publish` and `publish-tag`; the URL must use
-  `https://`.
-- `RELEASE_HELM_CLASSIC_USERNAME` with `RELEASE_HELM_CLASSIC_TOKEN_FILE` or
-  environment-only `RELEASE_HELM_CLASSIC_TOKEN` provides documented Basic auth
-  for the classic Helm package registry.
-- `RELEASE_HELM_CLASSIC_TOKEN` is environment-only and is intentionally not a
-  supported `.release-tools.env` key.
-- `RELEASE_HELM_PROVENANCE=1` makes chart packaging use Helm classic provenance
-  signing with `helm package --sign`.
-- `RELEASE_HELM_GPG_KEY` and `RELEASE_HELM_GPG_KEYRING` are required when Helm
-  provenance is enabled; relative keyring paths are resolved from the release
-  repository root.
-- Container image publishing is detected from GoReleaser config, not from a
-  `RELEASE_ARTIFACTS` value; `dockers`, `dockers_v2`, `docker_manifests`, and
-  `docker_signs` trigger local tool preflights in `doctor` and `tools-check`.
+- `docs/usage.md` is the canonical public variable contract. Update it when
+  adding, removing, or changing supported caller-provided variables.
+- Keep the split between supported `.release-tools.env` keys and
+  environment-only variables documented in `docs/usage.md`.
+- Environment-only variables documented in `docs/usage.md` must not be accepted
+  from repo-local config unless the public contract intentionally changes.
+- High-risk invariants to preserve unless intentionally changing the public
+  contract: installed CLI only, `.release-tools.env` default config,
+  environment overrides, publishing-only token mapping, no token passthrough for
+  validation commands, GoReleaser-owned binaries/containers, Helm-owned chart
+  packaging, and no consumer-facing Make release frontend.
 
 ## Commands
 - CLI:

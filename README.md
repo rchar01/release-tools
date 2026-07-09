@@ -40,8 +40,9 @@ Consumer repositories need:
 
 - the `release-tools` binary installed on `PATH`
 - GoReleaser available on `PATH` or through `GORELEASER_BIN`
-- Docker, Podman, Cosign, or another configured signing command when the
-  project-owned GoReleaser config uses container image or image-signing pipes
+- Docker, Podman, [Cosign](https://github.com/sigstore/cosign), or another
+  configured signing command when the project-owned GoReleaser config uses
+  container image or image-signing pipes
 - Helm available on `PATH` when `RELEASE_ARTIFACTS` includes `charts`
 - a repo-local `.release-tools.env`
 - a project-owned `.goreleaser.yaml`
@@ -146,97 +147,13 @@ release-tools completion powershell
 
 ## Configuration
 
-Supported `RELEASE_FORGE` values are:
+Consumer repositories configure `release-tools` with `.release-tools.env` and
+environment overrides. The Quick Start example shows the common minimum shape.
 
-- `codeberg`
-- `gitea`
-- `forgejo`
-- `github`
-- `gitlab`
-
-`codeberg`, `gitea`, and `forgejo` use Codeberg-compatible defaults unless
-`RELEASE_API_URL` is set explicitly.
-
-Required for release commands:
-
-- `RELEASE_PROJECT`
-- `RELEASE_OWNER`
-
-Additionally required for `publish-tag`:
-
-- `VERSION` or a positional tag argument such as `v1.2.3`
-
-Supported release notes modes:
-
-- `news-md`: extract the body below `## vX.Y.Z - YYYY-MM-DD` headings
-- `gnu-news`: extract the body below GNU-style
-  `* Noteworthy changes in release X.Y.Z (YYYY-MM-DD)` headings
-- `none`: disable generated release notes
-
-Supported artifact classes are configured with `RELEASE_ARTIFACTS`. If unset,
-the CLI uses `binaries`; supported values are `binaries` and `charts`.
-
-`binaries` means GoReleaser owns configured binaries, archives, checksums,
-release assets, and any GoReleaser-supported SBOM or signing output. Configure
-those artifacts in `.goreleaser.yaml`, not `.release-tools.env`.
-
-`charts` means `release-tools` runs Helm chart checks and packages chart
-archives. Configure chart directories with `RELEASE_HELM_CHART_DIRS`; the only
-stable chart and app version source is currently `tag`, so `v1.2.3` becomes
-`1.2.3`. Reading chart versions from `Chart.yaml` is future work and is not
-currently supported.
-
-If `RELEASE_HELM_OCI_REPOSITORY` is set, publish commands push packaged charts
-to that OCI repository after GoReleaser succeeds. Set
-`RELEASE_HELM_OCI_USERNAME` with `RELEASE_HELM_OCI_PASSWORD_FILE` or
-environment-only `RELEASE_HELM_OCI_PASSWORD` when `release-tools` should run
-`helm registry login` with a temporary Helm registry config before pushing.
-Without those auth settings, Helm must already be authenticated. Set
-`RELEASE_HELM_OCI_SIGNER=cosign` to sign pushed OCI charts by the immutable
-digest reported by Helm; optional non-secret signer flags go in
-`RELEASE_HELM_OCI_SIGN_ARGS`. Signing fails if Helm does not report a digest, so
-the CLI never signs a mutable chart tag. Set
-`RELEASE_HELM_PROVENANCE=1` with `RELEASE_HELM_GPG_KEY` and
-`RELEASE_HELM_GPG_KEYRING` to append Helm's `--sign`, `--key`, and `--keyring`
-flags during chart packaging.
-
-Chart-enabled snapshot, publish, and publish-tag flows write
-`dist/release-manifest.json` with the release tag, normalized chart version,
-packaged chart path, SHA-256, optional provenance file metadata, configured Helm
-OCI or classic registry target, and optional OCI digest/signing metadata.
-When GoReleaser writes `dist/artifacts.json`, the manifest also records
-GoReleaser-owned artifact names, types, paths, targets, platforms, and SHA-256
-values without taking ownership of those artifacts away from GoReleaser.
-Publish-time chart packages are copied back into `dist/charts` after remote
-chart publishing succeeds so manifest paths remain valid. For `publish-tag`, the
-chart packages, provenance files, GoReleaser artifact files referenced by the
-manifest, and the manifest are copied back from the temporary clone to the caller
-repository. Set `RELEASE_MANIFEST_UPLOAD=1` to upload the manifest as a forge
-release asset after all configured artifact publishing and signing steps succeed.
-
-Set `RELEASE_HELM_OCI_PLAIN_HTTP=1` only for disposable or otherwise explicitly
-trusted insecure OCI registries. It appends Helm's `--plain-http` flag to OCI
-registry login and chart pushes.
-
-For ChartMuseum-compatible classic Helm package registries, including
-Forgejo/Gitea package registries, set `RELEASE_HELM_CLASSIC_URL` to the HTTPS
-Helm package base URL, such as `https://forge.example/api/packages/myowner/helm`.
-Do not include credentials, query strings, fragments, or the `/api/charts` upload
-suffix. Configure `RELEASE_HELM_CLASSIC_USERNAME` with
-`RELEASE_HELM_CLASSIC_TOKEN_FILE` or environment-only
-`RELEASE_HELM_CLASSIC_TOKEN`. Publish commands upload packaged charts to
-`<url>/api/charts` with Basic auth after GoReleaser succeeds.
-
-Container image publishing remains GoReleaser-owned and is not a
-`RELEASE_ARTIFACTS` value. Configure containers in `.goreleaser.yaml`; when it
-contains top-level `dockers`, `dockers_v2`, `docker_manifests`, or
-`docker_signs`, `doctor` and `tools-check` report the detected config and check
-for the corresponding local tools before release time. `docker_signs` defaults
-to `cosign` unless the GoReleaser config sets another static `cmd`. Dynamic or
-block-scalar signing commands are left for GoReleaser to resolve.
-
-For the full public config contract, token resolution rules, and consumer setup
-guide, see [`docs/usage.md`](docs/usage.md).
+The canonical public contract for supported keys, environment-only variables,
+token resolution, release-notes modes, artifact classes, Helm chart behavior,
+release manifests, and container-image preflights is
+[`docs/usage.md`](docs/usage.md).
 
 ## Examples And Docs
 
@@ -311,8 +228,9 @@ digest, and verifies the signature from a clean environment:
 make helm-oci-signing-test
 ```
 
-This target requires a trusted `cosign` on `PATH`; the dev container includes
-Cosign for containerized verification.
+This target requires a trusted
+[`cosign`](https://github.com/sigstore/cosign) on `PATH`; the dev container
+includes Cosign for containerized verification.
 
 Run a disposable GPG-backed Helm provenance smoke test. This builds the current
 CLI, generates a temporary signing key, runs chart-enabled `release-tools

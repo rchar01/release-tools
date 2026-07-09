@@ -39,9 +39,12 @@ Download the matching release binary and place it in a directory on `PATH`.
 Linux amd64 example:
 
 ```bash
+RELEASE_TOOLS_VERSION=vX.Y.Z
+version="${RELEASE_TOOLS_VERSION#v}"
+
 mkdir -p "$HOME/.local/bin"
 curl -fsSL -o "$HOME/.local/bin/release-tools" \
-  "https://codeberg.org/rch/release-tools/releases/download/v3.4.0/release-tools_3.4.0_linux_amd64"
+  "https://codeberg.org/rch/release-tools/releases/download/${RELEASE_TOOLS_VERSION}/release-tools_${version}_linux_amd64"
 chmod +x "$HOME/.local/bin/release-tools"
 ```
 
@@ -53,13 +56,13 @@ release-tools_<version>_<os>_<arch>
 
 Supported release binaries:
 
-- `release-tools_3.4.0_linux_amd64`
-- `release-tools_3.4.0_darwin_amd64`
+- `release-tools_X.Y.Z_linux_amd64`
+- `release-tools_X.Y.Z_darwin_amd64`
 
 For system-wide installation, use a privileged install directory instead:
 
 ```bash
-sudo install -m 0755 release-tools_3.4.0_linux_amd64 /usr/local/bin/release-tools
+sudo install -m 0755 release-tools_X.Y.Z_linux_amd64 /usr/local/bin/release-tools
 ```
 
 ## 2. Define Release Tools Config
@@ -230,9 +233,10 @@ Set `RELEASE_HELM_OCI_PLAIN_HTTP=1` only for disposable or otherwise explicitly
 trusted insecure registries; it appends Helm's `--plain-http` flag to OCI chart
 registry login and pushes.
 
-Set `RELEASE_HELM_OCI_SIGNER=cosign` to sign pushed OCI charts by immutable
-digest after `helm push` succeeds. The CLI parses Helm's `Pushed:` and
-`Digest:` output, constructs
+Set `RELEASE_HELM_OCI_SIGNER=cosign` to sign pushed OCI charts with
+[`cosign`](https://github.com/sigstore/cosign) by immutable digest after
+`helm push` succeeds. The CLI parses Helm's `Pushed:` and `Digest:` output,
+constructs
 `<registry>/<repo>/<chart>@sha256:...`, and signs only that immutable reference.
 If Helm does not report a digest, signing fails rather than signing a mutable tag.
 Cosign is invoked as `cosign sign --yes <args> <digest-ref>`. Put non-secret
@@ -333,7 +337,7 @@ Required for release commands:
 
 Additionally required for `release-tools publish-tag`:
 
-- `VERSION` or a positional tag argument such as `v3.4.0`
+- `VERSION` or a positional tag argument such as `vX.Y.Z`
 
 ## 4. Add GoReleaser Configuration
 
@@ -508,8 +512,8 @@ release-tools doctor
 release-tools check
 release-tools snapshot
 release-tools publish
-release-tools publish-tag v3.4.0
-release-tools notes v3.4.0
+release-tools publish-tag vX.Y.Z
+release-tools notes vX.Y.Z
 ```
 
 The CLI also generates shell completion scripts:

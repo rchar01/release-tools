@@ -143,62 +143,29 @@ Reason:
 
 ### Local Chart Behavior Is Helm-Owned
 
-When `RELEASE_ARTIFACTS` includes `charts`, the CLI validates chart directories
-and invokes Helm for chart work. `check` runs Helm dependency and lint checks.
-`snapshot` packages charts into `dist/charts` using the release tag as the chart
-and app version source. Publish commands package charts before GoReleaser
-publishes release assets. If `RELEASE_HELM_OCI_REPOSITORY` is set, publish
-commands push packaged charts to that OCI repository after GoReleaser succeeds.
-When explicit OCI auth is configured, the CLI logs in with Helm using a
-temporary registry config before pushing charts. If `RELEASE_HELM_CLASSIC_URL`
-is set, publish commands upload packaged charts to a ChartMuseum-compatible
-classic Helm package registry over HTTPS after GoReleaser succeeds.
-`RELEASE_HELM_OCI_PLAIN_HTTP=1` is an explicit insecure-registry opt-in for
-local or disposable OCI registry tests.
-If `RELEASE_HELM_OCI_SIGNER` is set to `cosign`, publish commands
-sign pushed OCI charts after Helm reports the immutable digest for each push.
+When `RELEASE_ARTIFACTS` includes `charts`, the CLI invokes Helm for chart
+checks, packaging, optional publishing, optional signing, and release-manifest
+metadata. The exact public chart variables, command behavior, and manifest
+schema live in [`usage.md`](usage.md).
 
 Reason:
 
 - Helm remains the chart packaging authority
 - local checks and packages can be validated before remote publishing exists
-- publish-time chart packages live outside `dist` because GoReleaser owns and
-  cleans that directory during real publish runs
-- OCI publishing uses Helm's native `helm push` behavior
-- insecure OCI transport is explicit and limited to Helm registry login and
-  chart pushes
-- chart registry authentication is explicit and uses `helm registry login` with
-  `--password-stdin`
-- plaintext OCI passwords are environment-only; committed config should use a
-  password file path instead
-- OCI chart signing is digest-only; signing fails if Helm does not report a
-  digest, because signing mutable chart tags would provide weak verification
-- the stable OCI chart signing backend is Cosign; other signing tools need their
+- publish-time chart packages are isolated from GoReleaser-owned cleanup
+- registry publishing uses Helm-native and registry-native protocols instead of
+  reimplemented package managers
+- chart registry auth and signing credentials remain tool-owned and scoped to the
+  commands that need them
+- OCI chart signing is digest-only because signing mutable chart tags would
+  provide weak verification
+- the stable OCI chart signing backend is
+  [Cosign](https://github.com/sigstore/cosign); other signing tools need their
   own verification model before they become public config
-- classic package uploads use the ChartMuseum-compatible `/api/charts` endpoint
-  rather than a Helm plugin
-- classic package uploads require HTTPS and use documented Basic auth with a
-  username plus an environment-only or file-backed token; auth is resolved before
-  GoReleaser starts
-- chart-enabled snapshot, publish, and publish-tag flows write a deterministic
-  `dist/release-manifest.json` with chart package names, versions, paths,
-  SHA-256 values, optional provenance metadata, and configured registry targets
-  after local packaging or remote chart publishing succeeds
-- when GoReleaser writes `dist/artifacts.json`, release manifests merge
-  GoReleaser-owned artifact metadata as a read-only view of the source of truth
-- `RELEASE_MANIFEST_UPLOAD=1` uploads the manifest as a forge release asset only
-  after all configured artifact publishing/signing and local manifest generation
-  succeed
-- classic Helm provenance uses Helm's own `helm package --sign` behavior with an
-  explicit key and keyring
-- publish commands copy successfully uploaded chart packages back into
-  `dist/charts` before writing the manifest so recorded paths remain valid
-- `publish-tag` copies the chart packages, provenance files, and manifest out of
-  the clean temporary tag clone before the clone is removed
-- `publish-tag` also copies GoReleaser artifact files referenced by the manifest
-  back to the caller repo so local manifest paths remain valid after cleanup
-- OCI chart signing uses Cosign against the immutable digest reported by Helm
-  after `helm push`
+- provenance stays with Helm's package-signing model instead of a generic signing
+  abstraction
+- manifest metadata records completed artifact steps without taking ownership
+  away from GoReleaser or Helm
 
 The toolkit intentionally does not provide a generic `RELEASE_SIGN_MODE` setting.
 Signing remains artifact-specific: GoReleaser owns binary and container signing
