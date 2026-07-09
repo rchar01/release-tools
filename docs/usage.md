@@ -139,6 +139,9 @@ Supported environment-only variables:
 
 Environment variables override `.release-tools.env` values. Set
 `RELEASE_CONFIG_FILE` to load a different config file.
+For `publish-tag`, a relative `RELEASE_CONFIG_FILE` is interpreted inside the
+clean tag clone; an absolute `RELEASE_CONFIG_FILE` must point inside the release
+repository so it can be mapped to the same relative path in the clone.
 
 Artifact classes are configured with `RELEASE_ARTIFACTS`:
 
@@ -531,7 +534,10 @@ config file.
 
 `release-tools publish-tag` publishes from a clean full-history clone detached at
 the exact repo tag. Keeping tag history available lets GoReleaser discover the
-previous tag for changelog generation.
+previous tag for changelog generation. Repo-local release config for
+`publish-tag` is loaded from that clean clone; operator-provided environment
+values such as release tokens remain available, but dirty worktree
+`.release-tools.env` values are not carried into the clone.
 
 The CLI fails fast when required variables are missing:
 

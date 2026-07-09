@@ -79,6 +79,7 @@ type app struct {
 	tmpDir      string
 	configFile  string
 	env         map[string]string
+	processEnv  map[string]string
 	commands    runner.Runner
 	stdout      io.Writer
 	stderr      io.Writer
@@ -190,7 +191,8 @@ func errorHandler(w io.Writer, _ fang.Styles, err error) {
 }
 
 func newApp(environ []string, stdout, stderr io.Writer) (*app, error) {
-	env := config.EnvironMap(environ)
+	processEnv := config.EnvironMap(environ)
+	env := copyEnvMap(processEnv)
 	pwd, err := os.Getwd()
 	if err != nil {
 		return nil, err
@@ -207,6 +209,7 @@ func newApp(environ []string, stdout, stderr io.Writer) (*app, error) {
 		tmpDir:      tmpDir,
 		configFile:  configFile,
 		env:         env,
+		processEnv:  processEnv,
 		commands:    runner.OSRunner{},
 		stdout:      stdout,
 		stderr:      stderr,
@@ -218,22 +221,26 @@ func newApp(environ []string, stdout, stderr io.Writer) (*app, error) {
 }
 
 func (a *app) cloneForRepo(repoRoot, tmpDir string) (*app, error) {
-	env := make(map[string]string, len(a.env)+2)
-	for k, v := range a.env {
-		env[k] = v
+	sourceEnv := a.processEnv
+	if sourceEnv == nil {
+		sourceEnv = a.env
 	}
+	configFile, err := a.cloneConfigFile(repoRoot, sourceEnv)
+	if err != nil {
+		return nil, err
+	}
+	env := copyEnvMap(sourceEnv)
 	env["RELEASE_REPO_ROOT"] = repoRoot
 	env["RELEASE_TMP_DIR"] = tmpDir
-	if _, ok := env["RELEASE_CONFIG_FILE"]; !ok {
-		env["RELEASE_CONFIG_FILE"] = filepath.Join(repoRoot, ".release-tools.env")
-	}
+	env["RELEASE_CONFIG_FILE"] = configFile
 
 	cloned := &app{
 		toolkitRoot: a.toolkitRoot,
 		repoRoot:    repoRoot,
 		tmpDir:      tmpDir,
-		configFile:  env["RELEASE_CONFIG_FILE"],
+		configFile:  configFile,
 		env:         env,
+		processEnv:  copyEnvMap(env),
 		commands:    a.commandRunner(),
 		stdout:      a.stdout,
 		stderr:      a.stderr,
@@ -242,6 +249,25 @@ func (a *app) cloneForRepo(repoRoot, tmpDir string) (*app, error) {
 		return nil, err
 	}
 	return cloned, nil
+}
+
+func (a *app) cloneConfigFile(repoRoot string, sourceEnv map[string]string) (string, error) {
+	configFile := sourceEnv["RELEASE_CONFIG_FILE"]
+	if configFile == "" {
+		return filepath.Join(repoRoot, ".release-tools.env"), nil
+	}
+	if filepath.IsAbs(configFile) {
+		rel, err := filepath.Rel(a.repoRoot, configFile)
+		if err != nil || pathEscapesRoot(rel) {
+			return "", fmt.Errorf("RELEASE_CONFIG_FILE must be inside release repository for publish-tag: %s", configFile)
+		}
+		return filepath.Join(repoRoot, rel), nil
+	}
+	clean := filepath.Clean(configFile)
+	if pathEscapesRoot(clean) {
+		return "", fmt.Errorf("RELEASE_CONFIG_FILE must stay inside release repository for publish-tag: %s", configFile)
+	}
+	return filepath.Join(repoRoot, clean), nil
 }
 
 func resolveToolkitRoot() string {
@@ -258,6 +284,18 @@ func resolveToolkitRoot() string {
 
 func environMap(environ []string) map[string]string {
 	return config.EnvironMap(environ)
+}
+
+func copyEnvMap(env map[string]string) map[string]string {
+	copied := make(map[string]string, len(env))
+	for key, value := range env {
+		copied[key] = value
+	}
+	return copied
+}
+
+func pathEscapesRoot(path string) bool {
+	return path == ".." || strings.HasPrefix(path, ".."+string(filepath.Separator)) || filepath.IsAbs(path)
 }
 
 func envValue(env map[string]string, key, fallback string) string {
@@ -1487,14 +1525,7 @@ func (a *app) publish() error {
 }
 
 func (a *app) publishTag(tag string) error {
-	token, err := a.resolveToken()
-	if err != nil {
-		return err
-	}
 	if err := a.verifyTagExists(tag); err != nil {
-		return err
-	}
-	if err := a.validateManifestUploadConfig(); err != nil {
 		return err
 	}
 	if err := a.clearReleaseManifestOutputs(); err != nil {
@@ -1518,6 +1549,13 @@ func (a *app) publishTag(tag string) error {
 
 	cloneApp, err := a.cloneForRepo(cloneDir, notesTmpDir)
 	if err != nil {
+		return err
+	}
+	token, err := cloneApp.resolveToken()
+	if err != nil {
+		return err
+	}
+	if err := cloneApp.validateManifestUploadConfig(); err != nil {
 		return err
 	}
 	if err := cloneApp.validateChartConfig(); err != nil {
@@ -1581,7 +1619,10 @@ func (a *app) publishTag(tag string) error {
 	if err := a.copyReleaseOutputsFrom(cloneApp); err != nil {
 		return err
 	}
-	if err := a.uploadReleaseManifestIfEnabled(tag, token); err != nil {
+	uploadApp := *cloneApp
+	uploadApp.repoRoot = a.repoRoot
+	uploadApp.tmpDir = a.tmpDir
+	if err := uploadApp.uploadReleaseManifestIfEnabled(tag, token); err != nil {
 		return err
 	}
 	a.log("Published %s", tag)

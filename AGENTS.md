@@ -126,6 +126,10 @@
   publish-tag merge GoReleaser artifact metadata into
   `dist/release-manifest.json` without changing GoReleaser artifact ownership.
 - `publish-tag` publishes from a clean temporary clone of the exact tag.
+- `publish-tag` reloads repo-local release config from the clean temporary clone
+  and must not carry dirty/current-worktree `.release-tools.env` values into
+  clone execution; operator-provided environment values, including release
+  tokens, remain available.
 - `publish-tag` copies chart outputs, GoReleaser artifact files referenced by
   `dist/release-manifest.json`, and the manifest back from the temporary clone
   so repo-relative manifest paths remain valid locally.

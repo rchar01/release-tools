@@ -23,6 +23,9 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   test and made checksum-verified Cosign a dev-container dependency
 - verified pinned Go, GoReleaser, and Helm archive checksums during dev-container
   builds
+- made `publish-tag` reload repo-local release config from the clean tag clone
+  so dirty current-worktree config cannot redirect token-bearing release API
+  requests
 
 ### Removed
 

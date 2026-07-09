@@ -125,8 +125,8 @@ Reason:
 
 - committed config documents the release contract
 - CI and maintainers can still override values temporarily
-- clean tag publishing can pass non-secret current config into the temporary tag
-  clone
+- clean tag publishing reloads repo-local config from the temporary tag clone
+  and only carries operator environment values into that clone
 - release config lives in one small committed file
 
 ### Artifact Classes Are Explicit

@@ -59,6 +59,89 @@ func TestLoadConfigFileRejectsReleaseTokenFile(t *testing.T) {
 	}
 }
 
+func TestCloneForRepoReloadsConfigFromCleanClone(t *testing.T) {
+	dir := t.TempDir()
+	repo := filepath.Join(dir, "repo")
+	clone := filepath.Join(dir, ".tmp", "release-v1.2.3")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(clone, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(clone, ".release-tools.env"), strings.Join([]string{
+		"RELEASE_FORGE=gitea",
+		"RELEASE_PROJECT=demo",
+		"RELEASE_OWNER=owner",
+		"RELEASE_API_URL=https://forge.example/api/v1",
+		"GORELEASER_CONFIG=.goreleaser.yaml",
+		"",
+	}, "\n"))
+
+	a := &app{
+		repoRoot: repo,
+		tmpDir:   filepath.Join(dir, ".tmp"),
+		env: map[string]string{
+			"RELEASE_REPO_ROOT": repo,
+			"RELEASE_FORGE":     "gitea",
+			"RELEASE_PROJECT":   "dirty-demo",
+			"RELEASE_OWNER":     "dirty-owner",
+			"RELEASE_API_URL":   "https://attacker.example/api/v1",
+			"RELEASE_TOKEN":     "operator-token",
+		},
+		processEnv: map[string]string{
+			"RELEASE_REPO_ROOT": repo,
+			"RELEASE_TOKEN":     "operator-token",
+		},
+		stdout: ioDiscard(),
+		stderr: ioDiscard(),
+	}
+
+	cloneApp, err := a.cloneForRepo(clone, filepath.Join(dir, ".tmp", "release-notes-v1.2.3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cloneApp.releaseAPIURL(); got != "https://forge.example/api/v1" {
+		t.Fatalf("clone releaseAPIURL() = %q, want clean clone config", got)
+	}
+	if got := cloneApp.env["RELEASE_PROJECT"]; got != "demo" {
+		t.Fatalf("clone RELEASE_PROJECT = %q, want clean clone config", got)
+	}
+	if got := cloneApp.env["RELEASE_TOKEN"]; got != "operator-token" {
+		t.Fatalf("clone RELEASE_TOKEN = %q, want operator environment token", got)
+	}
+	if got := cloneApp.configFile; got != filepath.Join(clone, ".release-tools.env") {
+		t.Fatalf("clone configFile = %q, want clean clone config path", got)
+	}
+}
+
+func TestCloneForRepoRejectsExternalConfigFile(t *testing.T) {
+	dir := t.TempDir()
+	repo := filepath.Join(dir, "repo")
+	clone := filepath.Join(dir, ".tmp", "release-v1.2.3")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{
+		repoRoot: repo,
+		tmpDir:   filepath.Join(dir, ".tmp"),
+		env:      map[string]string{},
+		processEnv: map[string]string{
+			"RELEASE_CONFIG_FILE": filepath.Join(dir, "external.env"),
+		},
+		stdout: ioDiscard(),
+		stderr: ioDiscard(),
+	}
+
+	_, err := a.cloneForRepo(clone, filepath.Join(dir, ".tmp", "release-notes-v1.2.3"))
+	if err == nil {
+		t.Fatal("expected external RELEASE_CONFIG_FILE error")
+	}
+	if !strings.Contains(err.Error(), "RELEASE_CONFIG_FILE must be inside release repository") {
+		t.Fatalf("error = %v, want RELEASE_CONFIG_FILE boundary error", err)
+	}
+}
+
 func TestLoadConfigFileRejectsOCIPlaintextPassword(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, ".release-tools.env"), []byte("RELEASE_HELM_OCI_PASSWORD=secret\n"), 0o644); err != nil {
@@ -2053,6 +2136,109 @@ func TestPublishTagPatchesReleaseBodyBeforeFailingHelmOCIPush(t *testing.T) {
 	}
 }
 
+func TestPublishTagUsesCleanCloneConfigForTokenBearingAPIRequests(t *testing.T) {
+	dir := t.TempDir()
+	repo := filepath.Join(dir, "repo")
+	clone := filepath.Join(dir, ".tmp", "release-v1.2.3")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	patched := false
+	uploaded := false
+	cleanServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "token operator-token" {
+			t.Fatalf("Authorization = %q, want operator token", got)
+		}
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/owner/demo/releases/tags/v1.2.3":
+			_, _ = w.Write([]byte(`{"id":42}`))
+		case r.Method == http.MethodPatch && r.URL.Path == "/repos/owner/demo/releases/42":
+			patched = true
+			_, _ = w.Write([]byte(`{}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/repos/owner/demo/releases/42/assets":
+			uploaded = true
+			if got := r.URL.Query().Get("name"); got != "release-manifest.json" {
+				t.Fatalf("manifest upload name = %q, want release-manifest.json", got)
+			}
+			_, _ = w.Write([]byte(`{}`))
+		default:
+			t.Fatalf("unexpected clean server request: %s %s", r.Method, r.URL.String())
+		}
+	}))
+	defer cleanServer.Close()
+	attackerCalled := false
+	attackerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attackerCalled = true
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer attackerServer.Close()
+
+	fake := &fakeCommandRunner{}
+	fake.onRun = func(cmd runner.Command) error {
+		if cmd.Name == "git" && len(cmd.Args) > 0 && cmd.Args[0] == "clone" {
+			if err := os.MkdirAll(clone, 0o755); err != nil {
+				return err
+			}
+			writeFile(t, filepath.Join(clone, ".release-tools.env"), strings.Join([]string{
+				"RELEASE_FORGE=gitea",
+				"RELEASE_API_URL=" + cleanServer.URL,
+				"RELEASE_OWNER=owner",
+				"RELEASE_PROJECT=demo",
+				"RELEASE_NOTES_MODE=news-md",
+				"RELEASE_NOTES_SOURCE=NEWS.md",
+				"RELEASE_BODY_MODE=patch",
+				"RELEASE_MANIFEST_UPLOAD=1",
+				"GORELEASER_CONFIG=.goreleaser.yaml",
+				"GORELEASER_BIN=/tools/goreleaser",
+				"",
+			}, "\n"))
+			writeFile(t, filepath.Join(clone, "NEWS.md"), "# News\n\n## v1.2.3 - 2026-07-02\n\n- release\n")
+			writeFile(t, filepath.Join(clone, ".goreleaser.yaml"), "version: 2\n")
+		}
+		if cmd.Name == "/tools/goreleaser" {
+			if cmd.Dir != clone {
+				t.Fatalf("goreleaser dir = %q, want clone %q", cmd.Dir, clone)
+			}
+			if !commandEnvContains(cmd.Env, "GITEA_TOKEN=operator-token") {
+				t.Fatalf("goreleaser env did not receive operator token: %#v", cmd.Env)
+			}
+		}
+		return nil
+	}
+	a := &app{
+		repoRoot: repo,
+		tmpDir:   filepath.Join(dir, ".tmp"),
+		env: map[string]string{
+			"RELEASE_FORGE":           "gitea",
+			"RELEASE_API_URL":         attackerServer.URL,
+			"RELEASE_OWNER":           "attacker",
+			"RELEASE_PROJECT":         "attacker-demo",
+			"RELEASE_BODY_MODE":       "patch",
+			"RELEASE_MANIFEST_UPLOAD": "1",
+			"RELEASE_TOKEN":           "operator-token",
+		},
+		processEnv: map[string]string{
+			"RELEASE_TOKEN": "operator-token",
+		},
+		commands: fake,
+		stdout:   ioDiscard(),
+		stderr:   ioDiscard(),
+	}
+
+	if err := a.publishTag("v1.2.3"); err != nil {
+		t.Fatal(err)
+	}
+	if attackerCalled {
+		t.Fatal("dirty current-worktree API URL received a token-bearing request")
+	}
+	if !patched {
+		t.Fatal("release body was not patched through clean clone config")
+	}
+	if !uploaded {
+		t.Fatal("release manifest was not uploaded through clean clone config")
+	}
+}
+
 func TestPublishTagStopsBeforeGoreleaserWhenHelmOCILoginFails(t *testing.T) {
 	dir := t.TempDir()
 	repo := filepath.Join(dir, "repo")
@@ -2887,6 +3073,15 @@ func commandStrings(commands []runner.Command) []string {
 		out = append(out, strings.TrimSpace(command.Name+" "+strings.Join(command.Args, " ")))
 	}
 	return out
+}
+
+func commandEnvContains(env []string, entry string) bool {
+	for _, value := range env {
+		if value == entry {
+			return true
+		}
+	}
+	return false
 }
 
 func assertPublishHelmPackageCommand(t *testing.T, got, chart, version, repoRoot string) {
