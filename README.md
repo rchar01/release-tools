@@ -232,6 +232,17 @@ This target requires a trusted
 [`cosign`](https://github.com/sigstore/cosign) on `PATH`; the dev container
 includes Cosign for containerized verification.
 
+For a local host install, use the upstream Cosign release binary or your trusted
+package manager. Linux amd64 example:
+
+```bash
+curl -O -L "https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-amd64"
+sudo mv cosign-linux-amd64 /usr/local/bin/cosign
+sudo chmod +x /usr/local/bin/cosign
+
+cosign version
+```
+
 Run a disposable GPG-backed Helm provenance smoke test. This builds the current
 CLI, generates a temporary signing key, runs chart-enabled `release-tools
 snapshot`, and verifies the signed chart with `helm verify`:
