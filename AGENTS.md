@@ -79,7 +79,8 @@
 - `.release-tools.env` is the default repo-local config file.
 - Environment variables override `.release-tools.env` values.
 - `RELEASE_TOKEN` is the public forge-token variable.
-- `RELEASE_TOKEN_FILE` may point at a local file containing the forge token.
+- `RELEASE_TOKEN_FILE` is environment-only and may point at a local file
+  containing the forge token.
 - The CLI maps `RELEASE_TOKEN` to `GITEA_TOKEN`, `GITHUB_TOKEN`, or
   `GITLAB_TOKEN` internally for GoReleaser based on `RELEASE_FORGE`.
 - Supported `RELEASE_FORGE` values are `codeberg`, `gitea`, `forgejo`,
@@ -167,7 +168,7 @@
   depend on an older globally installed binary, without trusting every executable
   in the repo-local `.tmp` directory during a privileged publish.
 - Ensure `RELEASE_TOKEN`, the native forge token variable, or
-  `RELEASE_TOKEN_FILE` is available before publishing.
+  environment-only `RELEASE_TOKEN_FILE` is available before publishing.
 
 ## Verified Behavior To Preserve
 - Keep the installed `release-tools` binary as the only public command surface.
@@ -218,7 +219,7 @@
 - the CLI requires a resolvable `goreleaser`.
 - release body patching uses the Go HTTP client.
 - token resolution reads `RELEASE_TOKEN`, the native GoReleaser token variable
-  for `RELEASE_FORGE`, or `RELEASE_TOKEN_FILE` in that order.
+  for `RELEASE_FORGE`, or environment-only `RELEASE_TOKEN_FILE` in that order.
 - GoReleaser resolution checks `GORELEASER_BIN`, then common install locations.
 - Helm is required only when `RELEASE_ARTIFACTS` includes `charts`.
 - Helm chart provenance signing uses Helm's built-in `helm package --sign` with

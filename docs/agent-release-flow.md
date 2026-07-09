@@ -81,7 +81,7 @@ implementation does three useful things when invoking GoReleaser:
   path in `doctor` without executing GoReleaser for version probing
 - ensures GoReleaser runs from the repository root
 - resolves `RELEASE_TOKEN`, a forge-native token variable, or
-  `RELEASE_TOKEN_FILE`
+  environment-only `RELEASE_TOKEN_FILE`
 - maps the resolved token to the forge-native token environment only for the
   GoReleaser process
 
@@ -109,7 +109,8 @@ command surface.
 Reason:
 
 - the CLI is explicit and portable across local shells and CI systems
-- repo-local `.release-tools.env` replaces Make variables as the config source
+- repo-local `.release-tools.env` replaces Make variables as the non-secret
+  config source
 - consumers no longer need to copy or include shared Make modules
 
 ### Config File With Environment Overrides
@@ -122,7 +123,8 @@ Reason:
 
 - committed config documents the release contract
 - CI and maintainers can still override values temporarily
-- clean tag publishing can pass current config into the temporary tag clone
+- clean tag publishing can pass non-secret current config into the temporary tag
+  clone
 - release config lives in one small committed file
 
 ### Artifact Classes Are Explicit
@@ -309,7 +311,7 @@ Mitigation:
 For local maintainer use:
 
 ```sh
-RELEASE_TOKEN_FILE=~/.config/forge/token
+export RELEASE_TOKEN_FILE=~/.config/forge/token
 ```
 
 For CI:

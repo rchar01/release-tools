@@ -73,7 +73,6 @@ RELEASE_PROJECT=platformctl
 RELEASE_FORGE=codeberg
 RELEASE_OWNER=rch
 RELEASE_REPO=platformctl
-# RELEASE_TOKEN_FILE=~/.config/forge/token
 RELEASE_NOTES_SOURCE=NEWS.md
 RELEASE_NOTES_MODE=news-md
 RELEASE_BODY_MODE=patch
@@ -123,12 +122,12 @@ Supported `.release-tools.env` keys:
 - `GORELEASER_CONFIG`
 - `GORELEASER_BIN`
 - `RELEASE_REQUIRE_GO`
-- `RELEASE_TOKEN_FILE`
 
 Supported environment-only variables:
 
 - `RELEASE_CONFIG_FILE`
 - `RELEASE_TOKEN`
+- `RELEASE_TOKEN_FILE`
 - native GoReleaser token variables: `GITEA_TOKEN`, `GITHUB_TOKEN`, or
   `GITLAB_TOKEN`
 - `RELEASE_HELM_OCI_PASSWORD`
@@ -467,12 +466,13 @@ Local maintainer flow should support:
 
 - `RELEASE_TOKEN` from the environment
 - or the native GoReleaser token variable for `RELEASE_FORGE`
-- or `RELEASE_TOKEN_FILE` pointing at a local token file
+- or environment-only `RELEASE_TOKEN_FILE` pointing at a local token file
 
-Recommended local setup:
+Recommended local setup is to export `RELEASE_TOKEN_FILE` from your shell or
+another operator-controlled environment source, not from `.release-tools.env`:
 
 ```sh
-RELEASE_TOKEN_FILE=~/.config/forge/token
+export RELEASE_TOKEN_FILE=~/.config/forge/token
 ```
 
 CI should provide `RELEASE_TOKEN` through repository secrets.

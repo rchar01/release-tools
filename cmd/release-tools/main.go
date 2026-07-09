@@ -54,7 +54,6 @@ var allowedConfigKeys = map[string]bool{
 	"GORELEASER_CONFIG":               true,
 	"GORELEASER_BIN":                  true,
 	"RELEASE_REQUIRE_GO":              true,
-	"RELEASE_TOKEN_FILE":              true,
 }
 
 type forgeKind string

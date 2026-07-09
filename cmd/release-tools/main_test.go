@@ -47,6 +47,18 @@ func TestLoadConfigFileRejectsUnsupportedKey(t *testing.T) {
 	}
 }
 
+func TestLoadConfigFileRejectsReleaseTokenFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".release-tools.env"), []byte("RELEASE_TOKEN_FILE=~/.config/forge/token\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := newApp([]string{"RELEASE_REPO_ROOT=" + dir}, ioDiscard(), ioDiscard())
+	if err == nil {
+		t.Fatal("expected unsupported key error")
+	}
+}
+
 func TestLoadConfigFileRejectsOCIPlaintextPassword(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, ".release-tools.env"), []byte("RELEASE_HELM_OCI_PASSWORD=secret\n"), 0o644); err != nil {

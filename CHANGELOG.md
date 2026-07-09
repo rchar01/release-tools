@@ -15,6 +15,8 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   repo-local `.tmp` executables through `PATH`
 - stopped `doctor` from executing the configured GoReleaser binary for version
   probing
+- kept `RELEASE_TOKEN_FILE` environment-only so repo-local config cannot choose
+  operator-local token files
 
 ### Removed
 

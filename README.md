@@ -24,7 +24,7 @@ GoReleaser still owns builds, checksums, archives, and release asset publishing.
 
 - stable commands for checking, snapshotting, publishing, and generating notes
 - repo-local `.release-tools.env` configuration with environment overrides
-- a shared `RELEASE_TOKEN` / `RELEASE_TOKEN_FILE` token contract
+- a shared `RELEASE_TOKEN` environment token contract
 - forge-aware token mapping for GoReleaser
 - release notes generation from `NEWS.md`
 - optional release body patching after publish
@@ -88,7 +88,6 @@ RELEASE_PROJECT=mycli
 RELEASE_FORGE=codeberg
 RELEASE_OWNER=myowner
 RELEASE_REPO=mycli
-# RELEASE_TOKEN_FILE=~/.config/forge/token
 RELEASE_NOTES_SOURCE=NEWS.md
 RELEASE_NOTES_MODE=news-md
 RELEASE_BODY_MODE=patch
@@ -117,7 +116,8 @@ release-tools publish-tag v1.2.3
 ```
 
 Publishing requires `RELEASE_TOKEN`, the native GoReleaser token variable for
-the selected forge, or `RELEASE_TOKEN_FILE` pointing at a local token file.
+the selected forge, or environment-only `RELEASE_TOKEN_FILE` pointing at a local
+token file.
 
 ## Commands
 
