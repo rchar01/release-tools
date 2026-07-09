@@ -255,7 +255,7 @@ signs the packaged chart file; OCI signing signs the pushed registry artifact by
 digest.
 
 `RELEASE_HELM_CLASSIC_URL` is for ChartMuseum-compatible classic Helm package
-registries, including Forgejo/Gitea package registries. Set it to the Helm
+registries, including Forgejo/Gitea package registries. Set it to the HTTPS Helm
 package base URL, for example `https://forge.example/api/packages/myowner/helm`.
 Do not include credentials, query strings, fragments, or the `/api/charts`
 upload suffix in this URL. `release-tools` uploads each packaged chart with a

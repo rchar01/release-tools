@@ -3042,8 +3042,8 @@ func (a *app) validateHelmClassicConfig() error {
 		return nil
 	}
 	parsed, err := url.Parse(classicURL)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
-		return fmt.Errorf("RELEASE_HELM_CLASSIC_URL must be an http:// or https:// URL: %s", classicURL)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" || parsed.Scheme != "https" {
+		return fmt.Errorf("RELEASE_HELM_CLASSIC_URL must be an https:// URL: %s", classicURL)
 	}
 	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
 		return fmt.Errorf("RELEASE_HELM_CLASSIC_URL must not include credentials, query, or fragment: %s", classicURL)

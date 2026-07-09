@@ -1542,7 +1542,7 @@ func TestPublishUploadsHelmChartsToClassicRegistry(t *testing.T) {
 	writeChart(t, filepath.Join(dir, "charts", "demo"), "demo")
 	writeFile(t, filepath.Join(dir, "NEWS.md"), "# News\n\n## v1.2.3 - 2026-07-02\n\n- release\n")
 	uploaded := false
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/api/packages/owner/helm/api/charts" {
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.String())
 		}
@@ -1561,6 +1561,9 @@ func TestPublishUploadsHelmChartsToClassicRegistry(t *testing.T) {
 		w.WriteHeader(http.StatusCreated)
 	}))
 	defer server.Close()
+	defaultClient := http.DefaultClient
+	http.DefaultClient = server.Client()
+	defer func() { http.DefaultClient = defaultClient }()
 	fake := &fakeCommandRunner{}
 	a := &app{
 		repoRoot: dir,
@@ -2090,7 +2093,7 @@ func TestPublishTagUploadsHelmChartsToClassicRegistryFromClone(t *testing.T) {
 	repo := filepath.Join(dir, "repo")
 	clone := filepath.Join(dir, ".tmp", "release-v1.2.3")
 	uploaded := false
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/api/packages/owner/helm/api/charts" {
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.String())
 		}
@@ -2109,6 +2112,9 @@ func TestPublishTagUploadsHelmChartsToClassicRegistryFromClone(t *testing.T) {
 		w.WriteHeader(http.StatusCreated)
 	}))
 	defer server.Close()
+	defaultClient := http.DefaultClient
+	http.DefaultClient = server.Client()
+	defer func() { http.DefaultClient = defaultClient }()
 	fake := &fakeCommandRunner{}
 	fake.onRun = func(cmd runner.Command) error {
 		if cmd.Name == "git" && len(cmd.Args) > 0 && cmd.Args[0] == "clone" {
@@ -2351,6 +2357,7 @@ func TestValidateChartConfigRejectsInvalidClassicConfig(t *testing.T) {
 		{"RELEASE_HELM_CLASSIC_TOKEN": "token"},
 		{"RELEASE_HELM_CLASSIC_URL": "https://forge.example/api/packages/owner/helm", "RELEASE_HELM_CLASSIC_TOKEN": "token"},
 		{"RELEASE_HELM_CLASSIC_URL": "oci://registry.example/charts"},
+		{"RELEASE_HELM_CLASSIC_URL": "http://forge.example/api/packages/owner/helm"},
 		{"RELEASE_HELM_CLASSIC_URL": "https://robot:secret@forge.example/api/packages/owner/helm"},
 		{"RELEASE_HELM_CLASSIC_URL": "https://forge.example/api/packages/owner/helm?token=secret"},
 		{"RELEASE_HELM_CLASSIC_URL": "https://forge.example/api/packages/owner/helm#secret"},

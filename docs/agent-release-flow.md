@@ -148,8 +148,7 @@ commands push packaged charts to that OCI repository after GoReleaser succeeds.
 When explicit OCI auth is configured, the CLI logs in with Helm using a
 temporary registry config before pushing charts. If `RELEASE_HELM_CLASSIC_URL`
 is set, publish commands upload packaged charts to a ChartMuseum-compatible
-classic Helm package registry, including Forgejo/Gitea package registries, after
-GoReleaser succeeds.
+classic Helm package registry over HTTPS after GoReleaser succeeds.
 `RELEASE_HELM_OCI_PLAIN_HTTP=1` is an explicit insecure-registry opt-in for
 local or disposable OCI registry tests.
 If `RELEASE_HELM_OCI_SIGNER` is set to `cosign`, publish commands
@@ -174,9 +173,9 @@ Reason:
   own verification model before they become public config
 - classic package uploads use the ChartMuseum-compatible `/api/charts` endpoint
   rather than a Helm plugin
-- classic package uploads use documented Basic auth with a username plus an
-  environment-only or file-backed token; auth is resolved before GoReleaser
-  starts
+- classic package uploads require HTTPS and use documented Basic auth with a
+  username plus an environment-only or file-backed token; auth is resolved before
+  GoReleaser starts
 - chart-enabled snapshot, publish, and publish-tag flows write a deterministic
   `dist/release-manifest.json` with chart package names, versions, paths,
   SHA-256 values, optional provenance metadata, and configured registry targets

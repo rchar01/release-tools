@@ -8,7 +8,7 @@ PODMAN="${PODMAN:-podman}"
 ZOT_IMAGE="${ZOT_IMAGE:-ghcr.io/project-zot/zot-minimal:v2.1.18}"
 CHARTMUSEUM_IMAGE="${CHARTMUSEUM_IMAGE:-ghcr.io/helm/chartmuseum:v0.16.3}"
 
-for tool in "$PODMAN" curl git go helm; do
+for tool in "$PODMAN" curl git go helm openssl; do
 	if ! command -v "$tool" >/dev/null 2>&1; then
 		printf 'required tool not found: %s\n' "$tool" >&2
 		exit 1
@@ -19,6 +19,7 @@ test_root="$ROOT_DIR/.tmp/helm-registry-test"
 repo_dir="$test_root/repo"
 bin_dir="$test_root/bin"
 pull_dir="$test_root/pull"
+tls_dir="$test_root/tls"
 release_tools_bin="$bin_dir/release-tools"
 zot_container="release-tools-zot-$$"
 chartmuseum_container="release-tools-chartmuseum-$$"
@@ -34,8 +35,9 @@ trap cleanup EXIT
 
 wait_for_http() {
 	url="$1"
+	shift
 	for ((attempt = 1; attempt <= 60; attempt++)); do
-		if curl -fsS "$url" >/dev/null 2>&1; then
+		if curl -fsS "$@" "$url" >/dev/null 2>&1; then
 			return 0
 		fi
 		sleep 1
@@ -45,7 +47,13 @@ wait_for_http() {
 }
 
 rm -rf "$test_root"
-mkdir -p "$bin_dir" "$repo_dir/charts/demo" "$pull_dir" "$ROOT_DIR/.tmp/go-build" "$ROOT_DIR/.tmp/go-cache"
+mkdir -p "$bin_dir" "$repo_dir/charts/demo" "$pull_dir" "$tls_dir" "$ROOT_DIR/.tmp/go-build" "$ROOT_DIR/.tmp/go-cache"
+
+openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 1 \
+	-subj "/CN=127.0.0.1" \
+	-addext "subjectAltName=IP:127.0.0.1" \
+	-keyout "$tls_dir/chartmuseum.key" \
+	-out "$tls_dir/chartmuseum.crt" >/dev/null 2>&1
 
 CGO_ENABLED=0 \
 	GOTMPDIR="$ROOT_DIR/.tmp/go-build" \
@@ -61,16 +69,19 @@ wait_for_http "http://127.0.0.1:$zot_port/v2/"
 
 "$PODMAN" run --detach --name "$chartmuseum_container" \
 	--publish 127.0.0.1::8080 \
+	--volume "$tls_dir:/certs:ro,Z" \
 	-e PORT=8080 \
 	-e STORAGE=local \
 	-e STORAGE_LOCAL_ROOTDIR=/tmp/charts \
 	-e BASIC_AUTH_USER="$classic_user" \
 	-e BASIC_AUTH_PASS="$classic_token" \
 	-e AUTH_ANONYMOUS_GET=1 \
+	-e TLS_CERT=/certs/chartmuseum.crt \
+	-e TLS_KEY=/certs/chartmuseum.key \
 	"$CHARTMUSEUM_IMAGE" >/dev/null
 chartmuseum_port_output="$($PODMAN port "$chartmuseum_container" 8080/tcp)"
 chartmuseum_port="${chartmuseum_port_output##*:}"
-wait_for_http "http://127.0.0.1:$chartmuseum_port/health"
+wait_for_http "https://127.0.0.1:$chartmuseum_port/health" --cacert "$tls_dir/chartmuseum.crt"
 
 cat >"$bin_dir/goreleaser" <<'EOF'
 #!/usr/bin/env bash
@@ -111,7 +122,7 @@ RELEASE_HELM_VERSION_FROM=tag
 RELEASE_HELM_APP_VERSION_FROM=tag
 RELEASE_HELM_OCI_REPOSITORY=oci://localhost:$zot_port/owner/charts
 RELEASE_HELM_OCI_PLAIN_HTTP=1
-RELEASE_HELM_CLASSIC_URL=http://127.0.0.1:$chartmuseum_port
+RELEASE_HELM_CLASSIC_URL=https://127.0.0.1:$chartmuseum_port
 RELEASE_HELM_CLASSIC_USERNAME=$classic_user
 RELEASE_HELM_CLASSIC_TOKEN_FILE=$repo_dir/classic-token
 RELEASE_NOTES_MODE=news-md
@@ -128,6 +139,7 @@ git -C "$repo_dir" commit --quiet -m 'chart registry smoke fixture'
 git -C "$repo_dir" tag "$tag"
 
 RELEASE_REPO_ROOT="$repo_dir" \
+	SSL_CERT_FILE="$tls_dir/chartmuseum.crt" \
 	RELEASE_TOKEN=forge-token \
 	"$release_tools_bin" publish-tag "$tag" >/dev/null
 
@@ -138,8 +150,8 @@ HELM_REGISTRY_CONFIG="$test_root/helm-registry.json" \
 	--destination "$pull_dir" >/dev/null
 test -f "$pull_dir/demo-$version.tgz"
 
-curl -fsS -u "$classic_user:$classic_token" \
-	"http://127.0.0.1:$chartmuseum_port/api/charts/demo/$version" \
+curl -fsS --cacert "$tls_dir/chartmuseum.crt" -u "$classic_user:$classic_token" \
+	"https://127.0.0.1:$chartmuseum_port/api/charts/demo/$version" \
 	| grep -q '"name":"demo"'
 
 printf 'Helm registry smoke test passed for %s\n' "$tag"

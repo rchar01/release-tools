@@ -218,9 +218,9 @@ trusted insecure OCI registries. It appends Helm's `--plain-http` flag to OCI
 registry login and chart pushes.
 
 For ChartMuseum-compatible classic Helm package registries, including
-Forgejo/Gitea package registries, set `RELEASE_HELM_CLASSIC_URL` to the Helm
-package base URL, such as `https://forge.example/api/packages/myowner/helm`. Do
-not include credentials, query strings, fragments, or the `/api/charts` upload
+Forgejo/Gitea package registries, set `RELEASE_HELM_CLASSIC_URL` to the HTTPS
+Helm package base URL, such as `https://forge.example/api/packages/myowner/helm`.
+Do not include credentials, query strings, fragments, or the `/api/charts` upload
 suffix. Configure `RELEASE_HELM_CLASSIC_USERNAME` with
 `RELEASE_HELM_CLASSIC_TOKEN_FILE` or environment-only
 `RELEASE_HELM_CLASSIC_TOKEN`. Publish commands upload packaged charts to
