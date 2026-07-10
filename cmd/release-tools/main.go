@@ -840,7 +840,8 @@ func (a *app) runHelmPackagesTo(version, destination string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(a.repoPath(destination), 0o755); err != nil {
+	destination, err = a.prepareHelmPackageDestination(destination)
+	if err != nil {
 		return nil, err
 	}
 	packages := []string{}
@@ -861,7 +862,7 @@ func (a *app) runHelmPackagesTo(version, destination string) ([]string, error) {
 			return nil, err
 		}
 		if a.helmProvenance() {
-			if _, err := os.Stat(a.repoPath(helmProvenancePath(chartPackage))); err != nil {
+			if err := ensureRegularFileNoSymlink(a.repoPath(helmProvenancePath(chartPackage)), "Helm provenance file"); err != nil {
 				if errors.Is(err, os.ErrNotExist) {
 					return nil, fmt.Errorf("Helm provenance file not found for package: %s", chartPackage)
 				}
@@ -873,6 +874,27 @@ func (a *app) runHelmPackagesTo(version, destination string) ([]string, error) {
 	return packages, nil
 }
 
+func (a *app) prepareHelmPackageDestination(destination string) (string, error) {
+	if filepath.IsAbs(destination) {
+		return destination, os.MkdirAll(destination, 0o755)
+	}
+	cleanDestination, err := cleanReleaseOutputRelPath(destination)
+	if err != nil {
+		return "", err
+	}
+	checkPath := filepath.Join(cleanDestination, ".release-tools-check")
+	if err := ensureNoSymlinkParents(a.repoRoot, checkPath); err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(a.repoPath(cleanDestination), 0o755); err != nil {
+		return "", err
+	}
+	if err := ensureNoSymlinkParents(a.repoRoot, checkPath); err != nil {
+		return "", err
+	}
+	return cleanDestination, nil
+}
+
 func (a *app) helmPackageArgs(chartDir, version, appVersion, destination string) []string {
 	args := []string{"package", chartDir, "--version", version, "--app-version", appVersion, "--destination", destination}
 	if a.helmProvenance() {
@@ -882,19 +904,38 @@ func (a *app) helmPackageArgs(chartDir, version, appVersion, destination string)
 }
 
 func (a *app) helmPackageFiles(destination, version string) (map[string]fileState, error) {
-	entries, err := os.ReadDir(a.repoPath(destination))
+	destinationPath := destination
+	if !filepath.IsAbs(destination) {
+		cleanDestination, err := cleanReleaseOutputRelPath(destination)
+		if err != nil {
+			return nil, err
+		}
+		destination = cleanDestination
+		if err := ensureNoSymlinkParents(a.repoRoot, filepath.Join(destination, ".release-tools-check")); err != nil {
+			return nil, err
+		}
+		destinationPath = a.repoPath(destination)
+	}
+	entries, err := os.ReadDir(destinationPath)
 	if err != nil {
 		return nil, err
 	}
 	packages := map[string]fileState{}
 	suffix := "-" + version + ".tgz"
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), suffix) {
+		if !strings.HasSuffix(entry.Name(), suffix) {
 			continue
 		}
-		info, err := entry.Info()
+		entryPath := filepath.Join(destinationPath, entry.Name())
+		info, err := os.Lstat(entryPath)
 		if err != nil {
 			return nil, err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("Helm chart package must not be a symlink: %s", entryPath)
+		}
+		if !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("Helm chart package must be a regular file: %s", entryPath)
 		}
 		packages[filepath.Join(destination, entry.Name())] = fileState{size: info.Size(), modTime: info.ModTime()}
 	}
@@ -973,11 +1014,7 @@ func (a *app) writeReleaseManifest(tag, version string, packages []string, ociRe
 		return err
 	}
 	content = append(content, '\n')
-	manifestPath := filepath.Join(a.repoRoot, "dist", "release-manifest.json")
-	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(manifestPath, content, 0o644)
+	return writeReleaseOutputFile(a.repoRoot, filepath.Join("dist", "release-manifest.json"), content, 0o644)
 }
 
 func (a *app) releaseManifestHelmCharts(version string, packages []string, ociResults []helmOCIPushResult) ([]releaseManifestHelmChart, error) {
@@ -988,7 +1025,11 @@ func (a *app) releaseManifestHelmCharts(version string, packages []string, ociRe
 	charts := make([]releaseManifestHelmChart, 0, len(packages))
 	for _, chartPackage := range packages {
 		name := helmPackageName(chartPackage, version)
-		sha, err := fileSHA256(a.repoPath(chartPackage))
+		chartPath := a.repoPath(chartPackage)
+		if err := ensureRegularFileNoSymlink(chartPath, "Helm chart package"); err != nil {
+			return nil, err
+		}
+		sha, err := fileSHA256(chartPath)
 		if err != nil {
 			return nil, err
 		}
@@ -999,8 +1040,12 @@ func (a *app) releaseManifestHelmCharts(version string, packages []string, ociRe
 			SHA256:  sha,
 		}
 		provenancePath := helmProvenancePath(chartPackage)
-		if _, err := os.Stat(a.repoPath(provenancePath)); err == nil {
-			provenanceSHA, err := fileSHA256(a.repoPath(provenancePath))
+		provenanceSource := a.repoPath(provenancePath)
+		if _, err := os.Lstat(provenanceSource); err == nil {
+			if err := ensureRegularFileNoSymlink(provenanceSource, "Helm provenance file"); err != nil {
+				return nil, err
+			}
+			provenanceSHA, err := fileSHA256(provenanceSource)
 			if err != nil {
 				return nil, err
 			}
@@ -1046,8 +1091,7 @@ func (a *app) goreleaserArtifactsExist() bool {
 }
 
 func (a *app) releaseManifestGoReleaserArtifacts() ([]releaseManifestGoReleaserArtifact, error) {
-	artifactsPath := filepath.Join(a.repoRoot, "dist", "artifacts.json")
-	content, err := os.ReadFile(artifactsPath)
+	content, err := readReleaseOutputFile(a.repoRoot, filepath.Join("dist", "artifacts.json"))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil
@@ -1072,17 +1116,34 @@ func (a *app) releaseManifestGoReleaserArtifacts() ([]releaseManifestGoReleaserA
 		if artifact.Type == "Metadata" || artifact.Name == "" || artifact.Path == "" {
 			continue
 		}
+		artifactPath, err := a.releaseOutputArtifactPath(artifact.Path)
+		if err != nil {
+			return nil, err
+		}
+		if err := ensureNoSymlinkParents(a.repoRoot, artifactPath); err != nil {
+			return nil, err
+		}
+		artifactInfo, err := os.Lstat(a.repoPath(artifactPath))
+		if err != nil {
+			return nil, err
+		}
+		if artifactInfo.Mode()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("GoReleaser artifact path must not be a symlink: %s", artifact.Path)
+		}
+		if !artifactInfo.Mode().IsRegular() {
+			return nil, fmt.Errorf("GoReleaser artifact path must be a regular file: %s", artifact.Path)
+		}
 		entry := releaseManifestGoReleaserArtifact{
 			Name:   artifact.Name,
 			Type:   artifact.Type,
-			Path:   manifestPathForRepo(a.repoRoot, artifact.Path),
+			Path:   filepath.ToSlash(artifactPath),
 			Target: artifact.Target,
 			GOOS:   artifact.GOOS,
 			GOARCH: artifact.GOARCH,
 			SHA256: goreleaserArtifactSHA256(artifact.Extra),
 		}
 		if entry.SHA256 == "" {
-			if sha, err := fileSHA256(a.repoPath(artifact.Path)); err == nil {
+			if sha, err := fileSHA256(a.repoPath(artifactPath)); err == nil {
 				entry.SHA256 = sha
 			} else if !errors.Is(err, os.ErrNotExist) {
 				return nil, err
@@ -1121,26 +1182,34 @@ func (a *app) persistHelmPackages(packages []string) ([]string, error) {
 	if len(packages) == 0 {
 		return nil, nil
 	}
-	destination := filepath.Join(a.repoRoot, "dist", "charts")
-	if err := os.MkdirAll(destination, 0o755); err != nil {
-		return nil, err
-	}
 	persisted := make([]string, 0, len(packages))
 	for _, chartPackage := range packages {
 		name := filepath.Base(chartPackage)
-		target := filepath.Join(destination, name)
-		if err := copyFile(a.repoPath(chartPackage), target); err != nil {
+		target := filepath.Join("dist", "charts", name)
+		chartSource := a.repoPath(chartPackage)
+		if err := ensureRegularFileNoSymlink(chartSource, "Helm chart package"); err != nil {
 			return nil, err
 		}
 		provenancePath := helmProvenancePath(chartPackage)
-		if _, err := os.Stat(a.repoPath(provenancePath)); err == nil {
-			if err := copyFile(a.repoPath(provenancePath), target+".prov"); err != nil {
+		provenanceSource := a.repoPath(provenancePath)
+		hasProvenance := false
+		if _, err := os.Lstat(provenanceSource); err == nil {
+			if err := ensureRegularFileNoSymlink(provenanceSource, "Helm provenance file"); err != nil {
 				return nil, err
 			}
+			hasProvenance = true
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return nil, err
 		}
-		persisted = append(persisted, filepath.Join("dist", "charts", name))
+		if err := copyFileToReleaseOutput(chartSource, a.repoRoot, target); err != nil {
+			return nil, err
+		}
+		if hasProvenance {
+			if err := copyFileToReleaseOutput(provenanceSource, a.repoRoot, target+".prov"); err != nil {
+				return nil, err
+			}
+		}
+		persisted = append(persisted, target)
 	}
 	sort.Strings(persisted)
 	return persisted, nil
@@ -1165,6 +1234,145 @@ func manifestPathForRepo(repoRoot, path string) string {
 	return filepath.ToSlash(path)
 }
 
+func (a *app) releaseOutputArtifactPath(path string) (string, error) {
+	if path == "" {
+		return "", errors.New("GoReleaser artifact path is empty")
+	}
+	nativePath := filepath.FromSlash(path)
+	if filepath.IsAbs(nativePath) {
+		rel, err := filepath.Rel(a.repoRoot, nativePath)
+		if err != nil {
+			return "", err
+		}
+		nativePath = rel
+	}
+	cleanPath, err := cleanReleaseOutputRelPath(nativePath)
+	if err != nil {
+		return "", fmt.Errorf("GoReleaser artifact path must stay inside dist: %s", path)
+	}
+	return cleanPath, nil
+}
+
+func cleanReleaseOutputRelPath(path string) (string, error) {
+	if path == "" {
+		return "", errors.New("release output path is empty")
+	}
+	nativePath := filepath.FromSlash(path)
+	if filepath.IsAbs(nativePath) {
+		return "", fmt.Errorf("release output path must be relative: %s", path)
+	}
+	cleanPath := filepath.Clean(nativePath)
+	if cleanPath == "." || pathEscapesRoot(cleanPath) || cleanPath == "dist" || !strings.HasPrefix(cleanPath, "dist"+string(filepath.Separator)) {
+		return "", fmt.Errorf("release output path must stay inside dist: %s", path)
+	}
+	return cleanPath, nil
+}
+
+func ensureNoSymlinkParents(root, relPath string) error {
+	parent := filepath.Dir(relPath)
+	if parent == "." {
+		return nil
+	}
+	current := root
+	for _, component := range strings.Split(parent, string(filepath.Separator)) {
+		if component == "" || component == "." {
+			continue
+		}
+		current = filepath.Join(current, component)
+		info, err := os.Lstat(current)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("release output parent must not be a symlink: %s", current)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("release output parent is not a directory: %s", current)
+		}
+	}
+	return nil
+}
+
+func ensureSafeReleaseOutputDestination(root, relPath string) error {
+	if err := ensureNoSymlinkParents(root, relPath); err != nil {
+		return err
+	}
+	target := filepath.Join(root, relPath)
+	info, err := os.Lstat(target)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("release output target must not be a symlink: %s", target)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("release output target is not a regular file: %s", target)
+	}
+	return nil
+}
+
+func ensureRegularFileNoSymlink(path, description string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s must not be a symlink: %s", description, path)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%s must be a regular file: %s", description, path)
+	}
+	return nil
+}
+
+func writeReleaseOutputFile(root, relPath string, content []byte, perm os.FileMode) error {
+	cleanPath, err := cleanReleaseOutputRelPath(relPath)
+	if err != nil {
+		return err
+	}
+	relPath = cleanPath
+	if err := ensureSafeReleaseOutputDestination(root, relPath); err != nil {
+		return err
+	}
+	target := filepath.Join(root, relPath)
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return err
+	}
+	if err := ensureSafeReleaseOutputDestination(root, relPath); err != nil {
+		return err
+	}
+	return os.WriteFile(target, content, perm)
+}
+
+func readReleaseOutputFile(root, relPath string) ([]byte, error) {
+	cleanPath, err := cleanReleaseOutputRelPath(relPath)
+	if err != nil {
+		return nil, err
+	}
+	relPath = cleanPath
+	if err := ensureNoSymlinkParents(root, relPath); err != nil {
+		return nil, err
+	}
+	target := filepath.Join(root, relPath)
+	info, err := os.Lstat(target)
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("release output file must not be a symlink: %s", target)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("release output file is not a regular file: %s", target)
+	}
+	return os.ReadFile(target)
+}
+
 func fileSHA256(path string) (string, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -1178,23 +1386,77 @@ func fileSHA256(path string) (string, error) {
 	return fmt.Sprintf("%x", hash.Sum(nil)), nil
 }
 
-func copyDirectory(source, target string) error {
-	entries, err := os.ReadDir(source)
+func copyReleaseOutputDirectory(sourceRoot, targetRoot, relDir string) error {
+	cleanDir, err := cleanReleaseOutputRelPath(relDir)
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(target, 0o755); err != nil {
+	if err := ensureNoSymlinkParents(sourceRoot, cleanDir); err != nil {
+		return err
+	}
+	sourceDir := filepath.Join(sourceRoot, cleanDir)
+	info, err := os.Lstat(sourceDir)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("release output source directory must not be a symlink: %s", sourceDir)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("release output source is not a directory: %s", sourceDir)
+	}
+	entries, err := os.ReadDir(sourceDir)
+	if err != nil {
+		return err
+	}
+	targetCheckPath := filepath.Join(cleanDir, ".release-tools-check")
+	if err := ensureNoSymlinkParents(targetRoot, targetCheckPath); err != nil {
+		return err
+	}
+	targetDir := filepath.Join(targetRoot, cleanDir)
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		return err
+	}
+	if err := ensureNoSymlinkParents(targetRoot, targetCheckPath); err != nil {
 		return err
 	}
 	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
+		relPath := filepath.Join(cleanDir, entry.Name())
+		sourcePath := filepath.Join(sourceRoot, relPath)
+		info, err := os.Lstat(sourcePath)
+		if err != nil {
+			return err
 		}
-		if err := copyFile(filepath.Join(source, entry.Name()), filepath.Join(target, entry.Name())); err != nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("release output source file must not be a symlink: %s", sourcePath)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("release output source file is not a regular file: %s", sourcePath)
+		}
+		if err := copyFileToReleaseOutput(sourcePath, targetRoot, relPath); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func copyFileToReleaseOutput(source, root, relPath string) error {
+	cleanPath, err := cleanReleaseOutputRelPath(relPath)
+	if err != nil {
+		return err
+	}
+	relPath = cleanPath
+	if err := ensureSafeReleaseOutputDestination(root, relPath); err != nil {
+		return err
+	}
+	target := filepath.Join(root, relPath)
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return err
+	}
+	if err := ensureSafeReleaseOutputDestination(root, relPath); err != nil {
+		return err
+	}
+	return copyFile(source, target)
 }
 
 func copyFile(source, target string) error {
@@ -1630,12 +1892,12 @@ func (a *app) publishTag(tag string) error {
 }
 
 func (a *app) copyReleaseOutputsFrom(source *app) error {
-	if err := copyDirectory(filepath.Join(source.repoRoot, "dist", "charts"), filepath.Join(a.repoRoot, "dist", "charts")); err != nil {
+	if err := copyReleaseOutputDirectory(source.repoRoot, a.repoRoot, filepath.Join("dist", "charts")); err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
 	}
-	content, err := os.ReadFile(filepath.Join(source.repoRoot, "dist", "release-manifest.json"))
+	content, err := readReleaseOutputFile(source.repoRoot, filepath.Join("dist", "release-manifest.json"))
 	if err != nil {
 		return err
 	}
@@ -1644,26 +1906,29 @@ func (a *app) copyReleaseOutputsFrom(source *app) error {
 		return err
 	}
 	for _, artifact := range manifest.Artifacts.GoReleaser {
-		if artifact.Path == "" || filepath.IsAbs(artifact.Path) {
-			continue
-		}
-		sourcePath := source.repoPath(filepath.FromSlash(artifact.Path))
-		info, err := os.Stat(sourcePath)
+		artifactPath, err := source.releaseOutputArtifactPath(artifact.Path)
 		if err != nil {
 			return err
 		}
-		if info.IsDir() {
-			continue
+		if err := ensureNoSymlinkParents(source.repoRoot, artifactPath); err != nil {
+			return err
 		}
-		if err := copyFile(sourcePath, a.repoPath(filepath.FromSlash(artifact.Path))); err != nil {
+		sourcePath := source.repoPath(artifactPath)
+		info, err := os.Lstat(sourcePath)
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("GoReleaser artifact path must not be a symlink: %s", artifact.Path)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("GoReleaser artifact path must be a regular file: %s", artifact.Path)
+		}
+		if err := copyFileToReleaseOutput(sourcePath, a.repoRoot, artifactPath); err != nil {
 			return err
 		}
 	}
-	manifestPath := filepath.Join(a.repoRoot, "dist", "release-manifest.json")
-	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(manifestPath, content, 0o644)
+	return writeReleaseOutputFile(a.repoRoot, filepath.Join("dist", "release-manifest.json"), content, 0o644)
 }
 
 func (a *app) clearReleaseManifestOutputs() error {
@@ -2051,11 +2316,10 @@ func (a *app) uploadReleaseManifestIfEnabled(tag, token string) error {
 	if !a.manifestUpload() {
 		return nil
 	}
-	manifestPath := filepath.Join(a.repoRoot, "dist", "release-manifest.json")
-	content, err := os.ReadFile(manifestPath)
+	content, err := readReleaseOutputFile(a.repoRoot, filepath.Join("dist", "release-manifest.json"))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("release manifest not found for upload: %s", manifestPath)
+			return fmt.Errorf("release manifest not found for upload: %s", filepath.Join(a.repoRoot, "dist", "release-manifest.json"))
 		}
 		return err
 	}

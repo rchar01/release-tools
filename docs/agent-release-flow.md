@@ -237,6 +237,11 @@ Reason:
   after fixing registry auth or registry-side issues
 - chart release manifests are written after chart package upload succeeds, so a
   failed remote chart publish does not leave a manifest that claims success
+- GoReleaser artifact paths copied back by `publish-tag` are constrained to
+  regular files under `dist/`, which keeps clean-clone outputs from writing
+  outside release artifacts
+- chart output paths and release-manifest reads/writes also reject symlinked
+  parents or targets before accessing `dist/...` release outputs
 
 ## What To Watch Out For
 

@@ -317,17 +317,22 @@ The chart release manifest currently uses this schema:
 
 The `goreleaser` array appears when GoReleaser writes `dist/artifacts.json`.
 Metadata entries are skipped; unknown fields are ignored; missing checksums are
-filled from the referenced local file when it exists. The provenance, OCI
-digest/signing, and classic fields appear only when those outputs or targets are
-configured. Manifest chart package paths are repo-relative `dist/charts/...`
-paths. During publish commands, charts are first packaged in a temporary
-directory outside the repository so GoReleaser cannot clean them before upload.
-After chart pushes or uploads succeed, those packages and `.prov` files are
-copied back into `dist/charts` before the manifest is written. For
+filled from the referenced local file when it exists. GoReleaser artifact paths
+must resolve to regular files under repo-relative `dist/...` paths before they
+are written to the manifest or copied back by `publish-tag`; release-manifest
+write and copy-back targets also reject symlinked parents or targets. The
+provenance, OCI digest/signing, and classic fields appear only when those outputs
+or targets are configured. Manifest chart package paths are repo-relative
+`dist/charts/...` paths. During publish commands, charts are first packaged in a
+temporary directory outside the repository so GoReleaser cannot clean them before
+upload. After chart pushes or uploads succeed, those packages and `.prov` files
+are copied back into `dist/charts` before the manifest is written; persisted and
+copied-back chart files must be regular files and must not pass through symlinked
+release-output paths. For
 `publish-tag`, the chart packages, provenance files, GoReleaser artifact files
-referenced by the manifest, and the manifest are copied from the clean temporary tag
-clone back to the caller repository. The manifest is not uploaded as a release
-asset unless `RELEASE_MANIFEST_UPLOAD=1` is set.
+referenced by the manifest, and the manifest are copied from the clean temporary
+tag clone back to the caller repository. The manifest is not uploaded as a
+release asset unless `RELEASE_MANIFEST_UPLOAD=1` is set.
 
 Set `RELEASE_MANIFEST_UPLOAD=1` to upload `dist/release-manifest.json` as a
 forge release asset after GoReleaser publishing, release body patching, chart

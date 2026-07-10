@@ -132,7 +132,9 @@
   tokens, remain available.
 - `publish-tag` copies chart outputs, GoReleaser artifact files referenced by
   `dist/release-manifest.json`, and the manifest back from the temporary clone
-  so repo-relative manifest paths remain valid locally.
+  so repo-relative manifest paths remain valid locally; GoReleaser artifact
+  and chart copy-back paths must stay under `dist/` and must be regular files,
+  and manifest read/write paths must not follow symlinked parents or targets.
 - GoReleaser must run from the release repository root.
 - unset `RELEASE_ARTIFACTS` keeps current binaries-only behavior.
 - `check` and `snapshot` paths must not require `RELEASE_TOKEN` and must not

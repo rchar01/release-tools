@@ -1115,6 +1115,24 @@ func TestUploadReleaseManifestToGitHub(t *testing.T) {
 	}
 }
 
+func TestUploadReleaseManifestRejectsSymlinkedManifest(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "dist"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(dir, "outside-manifest.json")
+	writeFile(t, outside, `{"schema_version":1}`)
+	if err := os.Symlink(outside, filepath.Join(dir, "dist", "release-manifest.json")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	a := &app{repoRoot: dir, env: map[string]string{"RELEASE_MANIFEST_UPLOAD": "1"}}
+
+	err := a.uploadReleaseManifestIfEnabled("v1.0.0", "token")
+	if err == nil || !strings.Contains(err.Error(), "release output file must not be a symlink") {
+		t.Fatalf("uploadReleaseManifestIfEnabled error = %v, want manifest symlink error", err)
+	}
+}
+
 func TestUploadReleaseManifestFailsOnDuplicateAsset(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "dist"), 0o755); err != nil {
@@ -2063,6 +2081,514 @@ func TestPublishTagCopiesBinaryOnlyManifestFromClone(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(repo, "dist", "release-tools")); err != nil {
 		t.Fatalf("publish-tag GoReleaser artifact was not copied back: %v", err)
+	}
+}
+
+func TestCopyReleaseOutputsFromRejectsUnsafeGoReleaserArtifactPaths(t *testing.T) {
+	tests := []struct {
+		name       string
+		path       string
+		sourcePath string
+		targetPath string
+	}{
+		{
+			name:       "parent traversal",
+			path:       "../outside",
+			sourcePath: filepath.Join("..", "outside"),
+			targetPath: filepath.Join("..", "outside"),
+		},
+		{
+			name:       "git directory",
+			path:       ".git/config",
+			sourcePath: filepath.Join(".git", "config"),
+			targetPath: filepath.Join(".git", "config"),
+		},
+		{
+			name:       "cleaned traversal",
+			path:       "dist/../.git/config",
+			sourcePath: filepath.Join(".git", "config"),
+			targetPath: filepath.Join(".git", "config"),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			sourceRoot := filepath.Join(dir, "source", "repo")
+			targetRoot := filepath.Join(dir, "target", "repo")
+			sourcePath := filepath.Join(sourceRoot, tt.sourcePath)
+			targetPath := filepath.Join(targetRoot, tt.targetPath)
+			if err := os.MkdirAll(filepath.Dir(sourcePath), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, sourcePath, "malicious")
+			writeFile(t, targetPath, "safe")
+			writeReleaseManifestWithGoReleaserArtifact(t, sourceRoot, tt.path)
+
+			err := (&app{repoRoot: targetRoot}).copyReleaseOutputsFrom(&app{repoRoot: sourceRoot})
+			if err == nil || !strings.Contains(err.Error(), "GoReleaser artifact path must stay inside dist") {
+				t.Fatalf("copyReleaseOutputsFrom error = %v, want dist containment error", err)
+			}
+			content, err := os.ReadFile(targetPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(content) != "safe" {
+				t.Fatalf("target content = %q, want safe", content)
+			}
+		})
+	}
+}
+
+func TestCopyReleaseOutputsFromRejectsGoReleaserArtifactSourceSymlink(t *testing.T) {
+	dir := t.TempDir()
+	sourceRoot := filepath.Join(dir, "source")
+	targetRoot := filepath.Join(dir, "target")
+	if err := os.MkdirAll(filepath.Join(sourceRoot, "dist"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(dir, "outside")
+	writeFile(t, outside, "outside")
+	if err := os.Symlink(outside, filepath.Join(sourceRoot, "dist", "release-tools")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	writeReleaseManifestWithGoReleaserArtifact(t, sourceRoot, "dist/release-tools")
+
+	err := (&app{repoRoot: targetRoot}).copyReleaseOutputsFrom(&app{repoRoot: sourceRoot})
+	if err == nil || !strings.Contains(err.Error(), "must not be a symlink") {
+		t.Fatalf("copyReleaseOutputsFrom error = %v, want symlink error", err)
+	}
+	if _, err := os.Stat(filepath.Join(targetRoot, "dist", "release-tools")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("target artifact stat error = %v, want not exist", err)
+	}
+}
+
+func TestCopyReleaseOutputsFromRejectsGoReleaserArtifactTargetSymlink(t *testing.T) {
+	dir := t.TempDir()
+	sourceRoot := filepath.Join(dir, "source")
+	targetRoot := filepath.Join(dir, "target")
+	if err := os.MkdirAll(filepath.Join(sourceRoot, "dist"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(targetRoot, "dist"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(sourceRoot, "dist", "release-tools"), "binary")
+	outside := filepath.Join(dir, "outside")
+	writeFile(t, outside, "safe")
+	if err := os.Symlink(outside, filepath.Join(targetRoot, "dist", "release-tools")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	writeReleaseManifestWithGoReleaserArtifact(t, sourceRoot, "dist/release-tools")
+
+	err := (&app{repoRoot: targetRoot}).copyReleaseOutputsFrom(&app{repoRoot: sourceRoot})
+	if err == nil || !strings.Contains(err.Error(), "target must not be a symlink") {
+		t.Fatalf("copyReleaseOutputsFrom error = %v, want target symlink error", err)
+	}
+	content, err := os.ReadFile(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "safe" {
+		t.Fatalf("outside content = %q, want safe", content)
+	}
+}
+
+func TestReleaseManifestGoReleaserArtifactsRejectsUnsafePath(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "dist"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeGoReleaserArtifactsJSON(t, dir, "../outside")
+
+	_, err := (&app{repoRoot: dir}).releaseManifestGoReleaserArtifacts()
+	if err == nil || !strings.Contains(err.Error(), "GoReleaser artifact path must stay inside dist") {
+		t.Fatalf("releaseManifestGoReleaserArtifacts error = %v, want dist containment error", err)
+	}
+}
+
+func TestReleaseManifestGoReleaserArtifactsRejectsNonRegularPath(t *testing.T) {
+	tests := []struct {
+		name    string
+		prepare func(*testing.T, string)
+		want    string
+	}{
+		{
+			name: "directory",
+			prepare: func(t *testing.T, path string) {
+				t.Helper()
+				if err := os.MkdirAll(path, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want: "GoReleaser artifact path must be a regular file",
+		},
+		{
+			name: "symlink",
+			prepare: func(t *testing.T, path string) {
+				t.Helper()
+				target := filepath.Join(filepath.Dir(path), "outside")
+				writeFile(t, target, "outside")
+				if err := os.Symlink(target, path); err != nil {
+					t.Skipf("symlinks unavailable: %v", err)
+				}
+			},
+			want: "GoReleaser artifact path must not be a symlink",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(dir, "dist"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			artifactPath := filepath.Join(dir, "dist", "release-tools")
+			tt.prepare(t, artifactPath)
+			writeGoReleaserArtifactsJSON(t, dir, "dist/release-tools")
+
+			_, err := (&app{repoRoot: dir}).releaseManifestGoReleaserArtifacts()
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("releaseManifestGoReleaserArtifacts error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestReleaseManifestGoReleaserArtifactsRejectsSymlinkedArtifactsMetadata(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "dist"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(dir, "outside-artifacts.json")
+	writeFile(t, outside, `[]`)
+	if err := os.Symlink(outside, filepath.Join(dir, "dist", "artifacts.json")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	_, err := (&app{repoRoot: dir}).releaseManifestGoReleaserArtifacts()
+	if err == nil || !strings.Contains(err.Error(), "release output file must not be a symlink") {
+		t.Fatalf("releaseManifestGoReleaserArtifacts error = %v, want metadata symlink error", err)
+	}
+}
+
+func TestWriteReleaseManifestRejectsSymlinkedManifestPath(t *testing.T) {
+	tests := []struct {
+		name    string
+		prepare func(*testing.T, string, string)
+		want    string
+	}{
+		{
+			name: "manifest target symlink",
+			prepare: func(t *testing.T, repoRoot, outside string) {
+				t.Helper()
+				if err := os.MkdirAll(filepath.Join(repoRoot, "dist"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(outside, filepath.Join(repoRoot, "dist", "release-manifest.json")); err != nil {
+					t.Skipf("symlinks unavailable: %v", err)
+				}
+			},
+			want: "release output target must not be a symlink",
+		},
+		{
+			name: "dist parent symlink",
+			prepare: func(t *testing.T, repoRoot, outside string) {
+				t.Helper()
+				outsideDir := filepath.Join(filepath.Dir(outside), "outside-dist")
+				if err := os.MkdirAll(outsideDir, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(outsideDir, filepath.Join(repoRoot, "dist")); err != nil {
+					t.Skipf("symlinks unavailable: %v", err)
+				}
+			},
+			want: "release output parent must not be a symlink",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			repoRoot := filepath.Join(dir, "repo")
+			outside := filepath.Join(dir, "outside")
+			if err := os.MkdirAll(repoRoot, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, outside, "safe")
+			tt.prepare(t, repoRoot, outside)
+
+			err := (&app{repoRoot: repoRoot}).writeReleaseManifest("v1.2.3", "1.2.3", nil, nil)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("writeReleaseManifest error = %v, want %q", err, tt.want)
+			}
+			content, err := os.ReadFile(outside)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(content) != "safe" {
+				t.Fatalf("outside content = %q, want safe", content)
+			}
+		})
+	}
+}
+
+func TestCopyReleaseOutputsFromRejectsSymlinkedManifestTarget(t *testing.T) {
+	dir := t.TempDir()
+	sourceRoot := filepath.Join(dir, "source")
+	targetRoot := filepath.Join(dir, "target")
+	if err := os.MkdirAll(filepath.Join(sourceRoot, "dist"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(targetRoot, "dist"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(sourceRoot, "dist", "release-manifest.json"), `{
+  "schema_version": 1,
+  "release": {"tag": "v1.2.3", "version": "1.2.3"},
+  "artifacts": {"goreleaser": []}
+}`)
+	outside := filepath.Join(dir, "outside")
+	writeFile(t, outside, "safe")
+	if err := os.Symlink(outside, filepath.Join(targetRoot, "dist", "release-manifest.json")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	err := (&app{repoRoot: targetRoot}).copyReleaseOutputsFrom(&app{repoRoot: sourceRoot})
+	if err == nil || !strings.Contains(err.Error(), "target must not be a symlink") {
+		t.Fatalf("copyReleaseOutputsFrom error = %v, want target symlink error", err)
+	}
+	content, err := os.ReadFile(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "safe" {
+		t.Fatalf("outside content = %q, want safe", content)
+	}
+}
+
+func TestCopyReleaseOutputsFromRejectsSymlinkedSourceManifest(t *testing.T) {
+	dir := t.TempDir()
+	sourceRoot := filepath.Join(dir, "source")
+	targetRoot := filepath.Join(dir, "target")
+	if err := os.MkdirAll(filepath.Join(sourceRoot, "dist"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(dir, "outside-manifest.json")
+	writeFile(t, outside, `{
+  "schema_version": 1,
+  "release": {"tag": "v1.2.3", "version": "1.2.3"},
+  "artifacts": {"goreleaser": []}
+}`)
+	if err := os.Symlink(outside, filepath.Join(sourceRoot, "dist", "release-manifest.json")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	err := (&app{repoRoot: targetRoot}).copyReleaseOutputsFrom(&app{repoRoot: sourceRoot})
+	if err == nil || !strings.Contains(err.Error(), "release output file must not be a symlink") {
+		t.Fatalf("copyReleaseOutputsFrom error = %v, want source manifest symlink error", err)
+	}
+}
+
+func TestCopyReleaseOutputsFromRejectsSymlinkedChartSourceDirectory(t *testing.T) {
+	dir := t.TempDir()
+	sourceRoot := filepath.Join(dir, "source")
+	targetRoot := filepath.Join(dir, "target")
+	if err := os.MkdirAll(filepath.Join(sourceRoot, "dist"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outsideCharts := filepath.Join(dir, "outside-charts")
+	if err := os.MkdirAll(outsideCharts, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(outsideCharts, "demo-1.2.3.tgz"), "chart")
+	if err := os.Symlink(outsideCharts, filepath.Join(sourceRoot, "dist", "charts")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	err := (&app{repoRoot: targetRoot}).copyReleaseOutputsFrom(&app{repoRoot: sourceRoot})
+	if err == nil || !strings.Contains(err.Error(), "source directory must not be a symlink") {
+		t.Fatalf("copyReleaseOutputsFrom error = %v, want chart source symlink error", err)
+	}
+	if _, err := os.Stat(filepath.Join(targetRoot, "dist", "charts", "demo-1.2.3.tgz")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("target chart stat error = %v, want not exist", err)
+	}
+}
+
+func TestCopyReleaseOutputsFromRejectsSymlinkedChartTargetDirectory(t *testing.T) {
+	dir := t.TempDir()
+	sourceRoot := filepath.Join(dir, "source")
+	targetRoot := filepath.Join(dir, "target")
+	if err := os.MkdirAll(filepath.Join(sourceRoot, "dist", "charts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(targetRoot, "dist"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(sourceRoot, "dist", "charts", "demo-1.2.3.tgz"), "chart")
+	outsideCharts := filepath.Join(dir, "outside-charts")
+	if err := os.MkdirAll(outsideCharts, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsideCharts, filepath.Join(targetRoot, "dist", "charts")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	err := (&app{repoRoot: targetRoot}).copyReleaseOutputsFrom(&app{repoRoot: sourceRoot})
+	if err == nil || !strings.Contains(err.Error(), "release output parent must not be a symlink") {
+		t.Fatalf("copyReleaseOutputsFrom error = %v, want chart target symlink error", err)
+	}
+	if _, err := os.Stat(filepath.Join(outsideCharts, "demo-1.2.3.tgz")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("outside chart stat error = %v, want not exist", err)
+	}
+}
+
+func TestCopyReleaseOutputsFromRejectsChartSourceDirectoryEntry(t *testing.T) {
+	dir := t.TempDir()
+	sourceRoot := filepath.Join(dir, "source")
+	targetRoot := filepath.Join(dir, "target")
+	if err := os.MkdirAll(filepath.Join(sourceRoot, "dist", "charts", "nested"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	err := (&app{repoRoot: targetRoot}).copyReleaseOutputsFrom(&app{repoRoot: sourceRoot})
+	if err == nil || !strings.Contains(err.Error(), "source file is not a regular file") {
+		t.Fatalf("copyReleaseOutputsFrom error = %v, want chart directory entry error", err)
+	}
+}
+
+func TestRunHelmPackagesRejectsSymlinkedDistCharts(t *testing.T) {
+	dir := t.TempDir()
+	writeChart(t, filepath.Join(dir, "charts", "demo"), "demo")
+	if err := os.MkdirAll(filepath.Join(dir, "dist"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outsideCharts := filepath.Join(dir, "outside-charts")
+	if err := os.MkdirAll(outsideCharts, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsideCharts, filepath.Join(dir, "dist", "charts")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	a := &app{
+		repoRoot: dir,
+		env: map[string]string{
+			"RELEASE_ARTIFACTS":       "charts",
+			"RELEASE_HELM_CHART_DIRS": "charts/demo",
+		},
+		commands: &fakeCommandRunner{},
+		stdout:   ioDiscard(),
+		stderr:   ioDiscard(),
+	}
+
+	_, err := a.runHelmPackages("1.2.3")
+	if err == nil || !strings.Contains(err.Error(), "release output parent must not be a symlink") {
+		t.Fatalf("runHelmPackages error = %v, want dist/charts symlink error", err)
+	}
+	if _, err := os.Stat(filepath.Join(outsideCharts, "demo-1.2.3.tgz")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("outside chart stat error = %v, want not exist", err)
+	}
+}
+
+func TestReleaseManifestHelmChartsRejectsSymlinkedChartPackage(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "dist", "charts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(dir, "outside-chart")
+	writeFile(t, outside, "chart")
+	if err := os.Symlink(outside, filepath.Join(dir, "dist", "charts", "demo-1.2.3.tgz")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	_, err := (&app{repoRoot: dir}).releaseManifestHelmCharts("1.2.3", []string{filepath.Join("dist", "charts", "demo-1.2.3.tgz")}, nil)
+	if err == nil || !strings.Contains(err.Error(), "Helm chart package must not be a symlink") {
+		t.Fatalf("releaseManifestHelmCharts error = %v, want chart symlink error", err)
+	}
+}
+
+func TestPersistHelmPackagesRejectsSymlinkedChartTargetDirectory(t *testing.T) {
+	dir := t.TempDir()
+	repoRoot := filepath.Join(dir, "repo")
+	packagePath := filepath.Join(dir, "demo-1.2.3.tgz")
+	writeFile(t, packagePath, "chart")
+	if err := os.MkdirAll(filepath.Join(repoRoot, "dist"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outsideCharts := filepath.Join(dir, "outside-charts")
+	if err := os.MkdirAll(outsideCharts, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsideCharts, filepath.Join(repoRoot, "dist", "charts")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	_, err := (&app{repoRoot: repoRoot}).persistHelmPackages([]string{packagePath})
+	if err == nil || !strings.Contains(err.Error(), "release output parent must not be a symlink") {
+		t.Fatalf("persistHelmPackages error = %v, want chart target symlink error", err)
+	}
+	if _, err := os.Stat(filepath.Join(outsideCharts, "demo-1.2.3.tgz")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("outside chart stat error = %v, want not exist", err)
+	}
+}
+
+func TestPersistHelmPackagesRejectsUnsafeSourceFiles(t *testing.T) {
+	tests := []struct {
+		name    string
+		prepare func(*testing.T, string)
+		want    string
+	}{
+		{
+			name: "chart package symlink",
+			prepare: func(t *testing.T, packagePath string) {
+				t.Helper()
+				outside := filepath.Join(filepath.Dir(packagePath), "outside-chart")
+				writeFile(t, outside, "chart")
+				if err := os.Symlink(outside, packagePath); err != nil {
+					t.Skipf("symlinks unavailable: %v", err)
+				}
+			},
+			want: "Helm chart package must not be a symlink",
+		},
+		{
+			name: "chart package directory",
+			prepare: func(t *testing.T, packagePath string) {
+				t.Helper()
+				if err := os.MkdirAll(packagePath, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want: "Helm chart package must be a regular file",
+		},
+		{
+			name: "provenance symlink",
+			prepare: func(t *testing.T, packagePath string) {
+				t.Helper()
+				writeFile(t, packagePath, "chart")
+				outside := filepath.Join(filepath.Dir(packagePath), "outside-prov")
+				writeFile(t, outside, "provenance")
+				if err := os.Symlink(outside, packagePath+".prov"); err != nil {
+					t.Skipf("symlinks unavailable: %v", err)
+				}
+			},
+			want: "Helm provenance file must not be a symlink",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			repoRoot := filepath.Join(dir, "repo")
+			packagePath := filepath.Join(dir, "demo-1.2.3.tgz")
+			tt.prepare(t, packagePath)
+
+			_, err := (&app{repoRoot: repoRoot}).persistHelmPackages([]string{packagePath})
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("persistHelmPackages error = %v, want %q", err, tt.want)
+			}
+			if _, err := os.Stat(filepath.Join(repoRoot, "dist", "charts", "demo-1.2.3.tgz")); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("target chart stat error = %v, want not exist", err)
+			}
+		})
 	}
 }
 
@@ -3057,6 +3583,29 @@ func writeFile(t *testing.T, path, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func writeReleaseManifestWithGoReleaserArtifact(t *testing.T, repoRoot, artifactPath string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(repoRoot, "dist"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(repoRoot, "dist", "release-manifest.json"), fmt.Sprintf(`{
+  "schema_version": 1,
+  "release": {"tag": "v1.2.3", "version": "1.2.3"},
+  "artifacts": {
+    "goreleaser": [
+      {"name": "release-tools", "type": "Binary", "path": %q}
+    ]
+  }
+}`, artifactPath))
+}
+
+func writeGoReleaserArtifactsJSON(t *testing.T, repoRoot, artifactPath string) {
+	t.Helper()
+	writeFile(t, filepath.Join(repoRoot, "dist", "artifacts.json"), fmt.Sprintf(`[
+  {"name":"release-tools","path":%q,"type":"Binary","goos":"linux","goarch":"amd64","target":"linux_amd64_v1"}
+]`, artifactPath))
 }
 
 func writeChart(t *testing.T, dir, name string) {
