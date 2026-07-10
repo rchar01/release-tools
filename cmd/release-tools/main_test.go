@@ -826,8 +826,8 @@ func TestCheckRunsHelmForCharts(t *testing.T) {
 	}
 	want := []string{
 		"/tools/goreleaser --config .goreleaser.yaml check",
-		"/fake/helm dependency update --skip-refresh charts/demo",
-		"/fake/helm lint charts/demo",
+		"/fake/helm dependency update --skip-refresh -- charts/demo",
+		"/fake/helm lint -- charts/demo",
 	}
 	if got := commandStrings(fake.runCommands); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("commands = %#v, want %#v", got, want)
@@ -855,7 +855,7 @@ func TestSnapshotPackagesHelmCharts(t *testing.T) {
 	}
 	want := []string{
 		"/tools/goreleaser --config .goreleaser.yaml release --snapshot --skip=publish --clean",
-		"/fake/helm package charts/demo --version 1.2.3 --app-version 1.2.3 --destination dist/charts",
+		"/fake/helm package --version 1.2.3 --app-version 1.2.3 --destination dist/charts -- charts/demo",
 	}
 	if got := commandStrings(fake.runCommands); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("commands = %#v, want %#v", got, want)
@@ -909,7 +909,7 @@ func TestSnapshotSignsHelmChartsWithProvenance(t *testing.T) {
 	if err := a.snapshot(); err != nil {
 		t.Fatal(err)
 	}
-	want := "/fake/helm package charts/demo --version 1.2.3 --app-version 1.2.3 --destination dist/charts --sign --key maintainer@example.org --keyring " + filepath.Join(dir, "release-keyring.gpg")
+	want := "/fake/helm package --version 1.2.3 --app-version 1.2.3 --destination dist/charts --sign --key maintainer@example.org --keyring " + filepath.Join(dir, "release-keyring.gpg") + " -- charts/demo"
 	if got := commandStrings(fake.runCommands)[1]; got != want {
 		t.Fatalf("helm package command = %q, want %q", got, want)
 	}
@@ -3086,10 +3086,10 @@ func TestCheckRunsHelmForMultipleCharts(t *testing.T) {
 	}
 	want := []string{
 		"/tools/goreleaser --config .goreleaser.yaml check",
-		"/fake/helm dependency update --skip-refresh charts/api",
-		"/fake/helm lint charts/api",
-		"/fake/helm dependency update --skip-refresh charts/worker",
-		"/fake/helm lint charts/worker",
+		"/fake/helm dependency update --skip-refresh -- charts/api",
+		"/fake/helm lint -- charts/api",
+		"/fake/helm dependency update --skip-refresh -- charts/worker",
+		"/fake/helm lint -- charts/worker",
 	}
 	if got := commandStrings(fake.runCommands); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("commands = %#v, want %#v", got, want)
@@ -3112,6 +3112,24 @@ func TestValidateChartConfigRejectsChartDirsOutsideRepo(t *testing.T) {
 			}}
 			if err := a.validateChartConfig(); err == nil {
 				t.Fatal("expected chart dir path error")
+			}
+		})
+	}
+}
+
+func TestValidateChartConfigRejectsOptionLikeChartDirs(t *testing.T) {
+	for _, dir := range []string{"--repository-cache=tmp", "charts/--bad", "charts/../--bad"} {
+		t.Run(dir, func(t *testing.T) {
+			a := &app{env: map[string]string{
+				"RELEASE_ARTIFACTS":       "charts",
+				"RELEASE_HELM_CHART_DIRS": dir,
+			}}
+			err := a.validateChartConfig()
+			if err == nil {
+				t.Fatal("expected option-like chart dir error")
+			}
+			if !strings.Contains(err.Error(), "must not contain path components beginning with '-'") {
+				t.Fatalf("error = %v, want option-like chart dir error", err)
 			}
 		})
 	}
@@ -3790,11 +3808,15 @@ func commandEnvContains(env []string, entry string) bool {
 
 func assertPublishHelmPackageCommand(t *testing.T, got, chart, version, repoRoot string) {
 	t.Helper()
-	prefix := "/fake/helm package " + chart + " --version " + version + " --app-version " + version + " --destination "
+	prefix := "/fake/helm package --version " + version + " --app-version " + version + " --destination "
 	if !strings.HasPrefix(got, prefix) {
 		t.Fatalf("helm package command = %q, want prefix %q", got, prefix)
 	}
-	destination := strings.TrimPrefix(got, prefix)
+	remainder := strings.TrimPrefix(got, prefix)
+	destination, chartArg, ok := strings.Cut(remainder, " -- ")
+	if !ok || chartArg != chart {
+		t.Fatalf("helm package command = %q, want chart path after --", got)
+	}
 	if !filepath.IsAbs(destination) {
 		t.Fatalf("helm package destination = %q, want absolute temp dir", destination)
 	}
@@ -3872,12 +3894,17 @@ func fakeHelmPackage(cmd runner.Command) error {
 	if cmd.Name != "/fake/helm" || len(cmd.Args) == 0 || cmd.Args[0] != "package" {
 		return nil
 	}
-	chart := cmd.Args[1]
+	chart := ""
 	version := ""
 	destination := ""
 	signed := false
-	for i := 2; i < len(cmd.Args); i++ {
+	for i := 1; i < len(cmd.Args); i++ {
 		switch cmd.Args[i] {
+		case "--":
+			if i+1 < len(cmd.Args) {
+				chart = cmd.Args[i+1]
+			}
+			i = len(cmd.Args)
 		case "--version":
 			if i+1 < len(cmd.Args) {
 				version = cmd.Args[i+1]
@@ -3892,7 +3919,7 @@ func fakeHelmPackage(cmd runner.Command) error {
 			signed = true
 		}
 	}
-	if version == "" || destination == "" {
+	if chart == "" || version == "" || destination == "" {
 		return nil
 	}
 	name := fakeChartName(filepath.Join(cmd.Dir, chart, "Chart.yaml"))

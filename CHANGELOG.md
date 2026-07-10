@@ -36,6 +36,8 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   variables so live Helm or forge credentials cannot override test fixtures
 - delayed authenticated Helm OCI registry login until after GoReleaser succeeds
   so GoReleaser hooks cannot read temporary Helm registry credentials
+- rejected option-like Helm chart directory path components and passed chart
+  paths to Helm after `--` so chart paths cannot be parsed as Helm flags
 
 ### Removed
 

@@ -113,6 +113,9 @@
 - `release-tools snapshot` runs `goreleaser release --snapshot --skip=publish
   --clean`; when charts are enabled it also runs `helm package` into
   `dist/charts`.
+- Helm chart directory config rejects path components beginning with `-`, and
+  Helm commands pass chart paths after `--` so chart paths cannot be interpreted
+  as Helm options.
 - `publish` and `publish-tag` package charts before GoReleaser publish starts;
   when `RELEASE_HELM_OCI_REPOSITORY` is set they push packaged charts with
   `helm push` after GoReleaser succeeds.

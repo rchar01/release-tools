@@ -193,6 +193,10 @@ RELEASE_HELM_APP_VERSION_FROM=tag
 # RELEASE_MANIFEST_UPLOAD=0
 ```
 
+Chart directory entries must stay inside the repository and must not contain
+path components beginning with `-`; `release-tools` passes validated chart paths
+to Helm after an end-of-options delimiter.
+
 Only `tag` is currently supported for Helm chart and app versions. A release tag
 such as `v1.2.3` becomes chart version `1.2.3`. Reading chart or app versions
 from `Chart.yaml` is future work and is not currently supported.

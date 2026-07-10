@@ -804,10 +804,10 @@ func (a *app) runHelmChecks() error {
 		return err
 	}
 	for _, dir := range dirs {
-		if err := a.runHelm(helmBin, "dependency", "update", "--skip-refresh", dir); err != nil {
+		if err := a.runHelm(helmBin, "dependency", "update", "--skip-refresh", "--", dir); err != nil {
 			return err
 		}
-		if err := a.runHelm(helmBin, "lint", dir); err != nil {
+		if err := a.runHelm(helmBin, "lint", "--", dir); err != nil {
 			return err
 		}
 	}
@@ -896,11 +896,11 @@ func (a *app) prepareHelmPackageDestination(destination string) (string, error) 
 }
 
 func (a *app) helmPackageArgs(chartDir, version, appVersion, destination string) []string {
-	args := []string{"package", chartDir, "--version", version, "--app-version", appVersion, "--destination", destination}
+	args := []string{"package", "--version", version, "--app-version", appVersion, "--destination", destination}
 	if a.helmProvenance() {
 		args = append(args, "--sign", "--key", a.helmGPGKey(), "--keyring", a.helmGPGKeyringPath())
 	}
-	return args
+	return append(args, "--", chartDir)
 }
 
 func (a *app) helmPackageFiles(destination, version string) (map[string]fileState, error) {
@@ -3129,12 +3129,24 @@ func (a *app) helmChartDirs() ([]string, error) {
 		if dir == ".." || strings.HasPrefix(dir, ".."+string(filepath.Separator)) {
 			return nil, fmt.Errorf("RELEASE_HELM_CHART_DIRS must be relative paths inside the repository: %s", dir)
 		}
+		if chartDirHasOptionLikeComponent(dir) {
+			return nil, fmt.Errorf("RELEASE_HELM_CHART_DIRS entries must not contain path components beginning with '-': %s", dir)
+		}
 		if !seen[dir] {
 			dirs = append(dirs, dir)
 			seen[dir] = true
 		}
 	}
 	return dirs, nil
+}
+
+func chartDirHasOptionLikeComponent(dir string) bool {
+	for _, component := range strings.Split(dir, string(filepath.Separator)) {
+		if strings.HasPrefix(component, "-") {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *app) helmVersionFrom() string {

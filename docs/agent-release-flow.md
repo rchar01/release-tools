@@ -216,6 +216,10 @@ When charts are enabled, it also runs Helm dependency and lint checks.
 `release-tools snapshot` runs `goreleaser release --snapshot --skip=publish --clean`.
 When charts are enabled, it also packages charts into `dist/charts`.
 
+Chart directory config rejects path components beginning with `-`, and Helm
+commands pass chart paths after `--` so repository-controlled chart paths cannot
+be parsed as Helm options.
+
 `release-tools publish` and `release-tools publish-tag` package charts before
 GoReleaser publish starts. `publish-tag` performs that package step inside the
 clean temporary tag clone. When OCI chart publishing is configured, they log in
