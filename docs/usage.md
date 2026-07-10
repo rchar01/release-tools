@@ -229,8 +229,9 @@ version tag; Helm derives those from the packaged chart. The caller must run
 publishing to a private registry. If `RELEASE_HELM_OCI_USERNAME` is set with
 `RELEASE_HELM_OCI_PASSWORD_FILE` or environment-only `RELEASE_HELM_OCI_PASSWORD`,
 `release-tools` runs `helm registry login` with `--password-stdin` and
-`--registry-config <temporary-file>` before pushing charts, then uses that
-temporary registry config for `helm push`. Plaintext
+`--registry-config <temporary-file>` after GoReleaser succeeds and immediately
+before pushing charts, then removes that temporary registry config after
+`helm push`. Plaintext
 `RELEASE_HELM_OCI_PASSWORD` is intentionally not accepted in `.release-tools.env`.
 Set `RELEASE_HELM_OCI_PLAIN_HTTP=1` only for disposable or otherwise explicitly
 trusted insecure registries; it appends Helm's `--plain-http` flag to OCI chart

@@ -1571,7 +1571,7 @@ func (a *app) prepareHelmOCIAuth(auth *helmOCIAuth) (*helmOCIAuthSession, error)
 	return session, nil
 }
 
-func (a *app) runHelmOCIPushes(packages []string, session *helmOCIAuthSession) ([]helmOCIPushResult, error) {
+func (a *app) runHelmOCIPushes(packages []string, auth *helmOCIAuth) ([]helmOCIPushResult, error) {
 	if len(packages) == 0 {
 		return nil, nil
 	}
@@ -1582,6 +1582,11 @@ func (a *app) runHelmOCIPushes(packages []string, session *helmOCIAuthSession) (
 	if _, err := a.helmOCIRepositoryChecked(); err != nil {
 		return nil, err
 	}
+	session, err := a.prepareHelmOCIAuth(auth)
+	if err != nil {
+		return nil, err
+	}
+	defer session.cleanup()
 	helmBin, err := a.resolveHelmBin()
 	if err != nil {
 		return nil, err
@@ -1818,18 +1823,13 @@ func (a *app) publish() error {
 	if err != nil {
 		return err
 	}
-	helmOCISession, err := a.prepareHelmOCIAuth(helmOCIAuth)
-	if err != nil {
-		return err
-	}
-	defer helmOCISession.cleanup()
 	if err := a.runGoreleaserWithToken(token, "release", "--clean", "--release-notes", notesFile); err != nil {
 		return err
 	}
 	if err := a.updateReleaseBody(tag, notesFile, token); err != nil {
 		return err
 	}
-	ociResults, err := a.runHelmOCIPushes(packages, helmOCISession)
+	ociResults, err := a.runHelmOCIPushes(packages, helmOCIAuth)
 	if err != nil {
 		return err
 	}
@@ -1910,12 +1910,6 @@ func (a *app) publishTag(tag string) error {
 	if err != nil {
 		return err
 	}
-	helmOCISession, err := cloneApp.prepareHelmOCIAuth(helmOCIAuth)
-	if err != nil {
-		return err
-	}
-	defer helmOCISession.cleanup()
-
 	a.log("Publishing %s", tag)
 	if err := cloneApp.runGoreleaserWithToken(token, "release", "--clean", "--release-notes", notesFile); err != nil {
 		return err
@@ -1923,7 +1917,7 @@ func (a *app) publishTag(tag string) error {
 	if err := cloneApp.updateReleaseBody(tag, notesFile, token); err != nil {
 		return err
 	}
-	ociResults, err := cloneApp.runHelmOCIPushes(packages, helmOCISession)
+	ociResults, err := cloneApp.runHelmOCIPushes(packages, helmOCIAuth)
 	if err != nil {
 		return err
 	}
@@ -2052,12 +2046,15 @@ func (a *app) environ() []string {
 
 func (a *app) goreleaserEnviron() []string {
 	return a.environExcept(map[string]bool{
-		"RELEASE_TOKEN":              true,
-		"GITEA_TOKEN":                true,
-		"GITHUB_TOKEN":               true,
-		"GITLAB_TOKEN":               true,
-		"RELEASE_HELM_OCI_PASSWORD":  true,
-		"RELEASE_HELM_CLASSIC_TOKEN": true,
+		"RELEASE_TOKEN":                   true,
+		"RELEASE_TOKEN_FILE":              true,
+		"GITEA_TOKEN":                     true,
+		"GITHUB_TOKEN":                    true,
+		"GITLAB_TOKEN":                    true,
+		"RELEASE_HELM_OCI_PASSWORD":       true,
+		"RELEASE_HELM_OCI_PASSWORD_FILE":  true,
+		"RELEASE_HELM_CLASSIC_TOKEN":      true,
+		"RELEASE_HELM_CLASSIC_TOKEN_FILE": true,
 	})
 }
 

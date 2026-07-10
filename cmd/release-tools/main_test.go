@@ -1469,16 +1469,16 @@ func TestPublishLogsIntoHelmOCIWithTemporaryRegistryConfig(t *testing.T) {
 		t.Fatalf("commands = %#v, want 4 commands", got)
 	}
 	assertPublishHelmPackageCommand(t, got[0], "charts/demo", "1.2.3", dir)
-	login := fake.runCommands[1]
+	if !strings.HasPrefix(got[1], "/tools/goreleaser --config .goreleaser.yaml release --clean --release-notes ") {
+		t.Fatalf("second command = %q, want goreleaser publish", got[1])
+	}
+	login := fake.runCommands[2]
 	if login.Name != "/fake/helm" || strings.Join(login.Args[:7], " ") != "registry login registry.example --username robot --password-stdin --registry-config" {
-		t.Fatalf("login command = %q, want helm registry login", got[1])
+		t.Fatalf("login command = %q, want helm registry login", got[2])
 	}
 	registryConfig := login.Args[7]
 	if !strings.HasPrefix(registryConfig, filepath.Join(dir, ".tmp", "helm-registry-")) || filepath.Base(registryConfig) != "config.json" {
 		t.Fatalf("registry config = %q, want unique temp config", registryConfig)
-	}
-	if !strings.HasPrefix(got[2], "/tools/goreleaser --config .goreleaser.yaml release --clean --release-notes ") {
-		t.Fatalf("third command = %q, want goreleaser publish", got[2])
 	}
 	if !isHelmPushCommand(got[3], "demo-1.2.3.tgz", "oci://registry.example/charts") || !strings.HasSuffix(got[3], " --registry-config "+registryConfig) {
 		t.Fatalf("fourth command = %q, want helm OCI push with registry config %q", got[3], registryConfig)
@@ -1561,7 +1561,7 @@ func TestPublishLogsIntoHelmOCIWithPlainHTTP(t *testing.T) {
 	if err := a.publish(); err != nil {
 		t.Fatal(err)
 	}
-	login := fake.runCommands[1]
+	login := fake.runCommands[2]
 	if login.Args[len(login.Args)-1] != "--plain-http" {
 		t.Fatalf("login args = %#v, want --plain-http", login.Args)
 	}
@@ -1607,12 +1607,21 @@ func TestResolveHelmClassicAuthReadsTokenFile(t *testing.T) {
 	}
 }
 
-func TestPublishStopsBeforeGoreleaserWhenHelmOCILoginFails(t *testing.T) {
+func TestPublishRunsGoreleaserBeforeHelmOCILogin(t *testing.T) {
 	dir := t.TempDir()
 	writeChart(t, filepath.Join(dir, "charts", "demo"), "demo")
 	writeFile(t, filepath.Join(dir, "NEWS.md"), "# News\n\n## v1.2.3 - 2026-07-02\n\n- release\n")
 	fake := &fakeCommandRunner{}
 	fake.onRun = func(cmd runner.Command) error {
+		if cmd.Name == "/tools/goreleaser" {
+			matches, err := filepath.Glob(filepath.Join(dir, ".tmp", "helm-registry-*"))
+			if err != nil {
+				return err
+			}
+			if len(matches) > 0 {
+				return fmt.Errorf("Helm registry config existed while GoReleaser ran: %v", matches)
+			}
+		}
 		if cmd.Name == "/fake/helm" && len(cmd.Args) > 1 && cmd.Args[0] == "registry" && cmd.Args[1] == "login" {
 			return errors.New("helm login failed")
 		}
@@ -1643,10 +1652,14 @@ func TestPublishStopsBeforeGoreleaserWhenHelmOCILoginFails(t *testing.T) {
 	if err := a.publish(); err == nil {
 		t.Fatal("expected helm login error")
 	}
+	goreleaserRan := false
 	for _, cmd := range fake.runCommands {
 		if cmd.Name == "/tools/goreleaser" {
-			t.Fatalf("goreleaser ran after helm login failure: %#v", commandStrings(fake.runCommands))
+			goreleaserRan = true
 		}
+	}
+	if !goreleaserRan {
+		t.Fatalf("goreleaser did not run before helm login failure: %#v", commandStrings(fake.runCommands))
 	}
 }
 
@@ -2882,7 +2895,7 @@ func TestPublishTagUsesCleanCloneConfigForTokenBearingAPIRequests(t *testing.T) 
 	}
 }
 
-func TestPublishTagStopsBeforeGoreleaserWhenHelmOCILoginFails(t *testing.T) {
+func TestPublishTagRunsGoreleaserBeforeHelmOCILogin(t *testing.T) {
 	dir := t.TempDir()
 	repo := filepath.Join(dir, "repo")
 	clone := filepath.Join(dir, ".tmp", "release-v1.2.3")
@@ -2892,6 +2905,15 @@ func TestPublishTagStopsBeforeGoreleaserWhenHelmOCILoginFails(t *testing.T) {
 			writeChart(t, filepath.Join(clone, "charts", "demo"), "demo")
 			writeFile(t, filepath.Join(clone, "NEWS.md"), "# News\n\n## v1.2.3 - 2026-07-02\n\n- release\n")
 			writeFile(t, filepath.Join(clone, ".goreleaser.yaml"), "version: 2\n")
+		}
+		if cmd.Name == "/tools/goreleaser" {
+			matches, err := filepath.Glob(filepath.Join(dir, ".tmp", "release-notes-v1.2.3", "helm-registry-*"))
+			if err != nil {
+				return err
+			}
+			if len(matches) > 0 {
+				return fmt.Errorf("Helm registry config existed while GoReleaser ran: %v", matches)
+			}
 		}
 		if cmd.Name == "/fake/helm" && len(cmd.Args) > 1 && cmd.Args[0] == "registry" && cmd.Args[1] == "login" {
 			return errors.New("helm login failed")
@@ -2922,10 +2944,14 @@ func TestPublishTagStopsBeforeGoreleaserWhenHelmOCILoginFails(t *testing.T) {
 	if err := a.publishTag("v1.2.3"); err == nil {
 		t.Fatal("expected helm login error")
 	}
+	goreleaserRan := false
 	for _, cmd := range fake.runCommands {
 		if cmd.Name == "/tools/goreleaser" {
-			t.Fatalf("goreleaser ran after helm login failure: %#v", commandStrings(fake.runCommands))
+			goreleaserRan = true
 		}
+	}
+	if !goreleaserRan {
+		t.Fatalf("goreleaser did not run before helm login failure: %#v", commandStrings(fake.runCommands))
 	}
 }
 
@@ -3321,15 +3347,18 @@ func TestRunGoreleaserUsesInjectedRunner(t *testing.T) {
 	a := &app{
 		repoRoot: "/repo",
 		env: map[string]string{
-			"GORELEASER_BIN":             "/tools/goreleaser",
-			"GORELEASER_CONFIG":          "release.yml",
-			"RELEASE_FORGE":              "github",
-			"RELEASE_TOKEN":              "release-token",
-			"GITEA_TOKEN":                "gitea-token",
-			"GITHUB_TOKEN":               "github-token",
-			"GITLAB_TOKEN":               "gitlab-token",
-			"RELEASE_HELM_OCI_PASSWORD":  "oci-secret",
-			"RELEASE_HELM_CLASSIC_TOKEN": "classic-secret",
+			"GORELEASER_BIN":                  "/tools/goreleaser",
+			"GORELEASER_CONFIG":               "release.yml",
+			"RELEASE_FORGE":                   "github",
+			"RELEASE_TOKEN":                   "release-token",
+			"RELEASE_TOKEN_FILE":              "/secrets/release-token",
+			"GITEA_TOKEN":                     "gitea-token",
+			"GITHUB_TOKEN":                    "github-token",
+			"GITLAB_TOKEN":                    "gitlab-token",
+			"RELEASE_HELM_OCI_PASSWORD":       "oci-secret",
+			"RELEASE_HELM_OCI_PASSWORD_FILE":  "/secrets/oci-token",
+			"RELEASE_HELM_CLASSIC_TOKEN":      "classic-secret",
+			"RELEASE_HELM_CLASSIC_TOKEN_FILE": "/secrets/classic-token",
 		},
 		commands: fake,
 		stdout:   ioDiscard(),
@@ -3355,11 +3384,14 @@ func TestRunGoreleaserUsesInjectedRunner(t *testing.T) {
 	}
 	for _, secret := range []string{
 		"RELEASE_TOKEN=release-token",
+		"RELEASE_TOKEN_FILE=/secrets/release-token",
 		"GITEA_TOKEN=gitea-token",
 		"GITHUB_TOKEN=github-token",
 		"GITLAB_TOKEN=gitlab-token",
 		"RELEASE_HELM_OCI_PASSWORD=oci-secret",
+		"RELEASE_HELM_OCI_PASSWORD_FILE=/secrets/oci-token",
 		"RELEASE_HELM_CLASSIC_TOKEN=classic-secret",
+		"RELEASE_HELM_CLASSIC_TOKEN_FILE=/secrets/classic-token",
 	} {
 		if envContains(cmd.Env, secret) {
 			t.Fatalf("GoReleaser environment contains secret %s", secret)
@@ -3372,15 +3404,18 @@ func TestRunGoreleaserWithTokenInjectsOnlyMappedToken(t *testing.T) {
 	a := &app{
 		repoRoot: "/repo",
 		env: map[string]string{
-			"GORELEASER_BIN":             "/tools/goreleaser",
-			"GORELEASER_CONFIG":          "release.yml",
-			"RELEASE_FORGE":              "github",
-			"RELEASE_TOKEN":              "ambient-release-token",
-			"GITEA_TOKEN":                "ambient-gitea-token",
-			"GITHUB_TOKEN":               "ambient-github-token",
-			"GITLAB_TOKEN":               "ambient-gitlab-token",
-			"RELEASE_HELM_OCI_PASSWORD":  "oci-secret",
-			"RELEASE_HELM_CLASSIC_TOKEN": "classic-secret",
+			"GORELEASER_BIN":                  "/tools/goreleaser",
+			"GORELEASER_CONFIG":               "release.yml",
+			"RELEASE_FORGE":                   "github",
+			"RELEASE_TOKEN":                   "ambient-release-token",
+			"RELEASE_TOKEN_FILE":              "/secrets/release-token",
+			"GITEA_TOKEN":                     "ambient-gitea-token",
+			"GITHUB_TOKEN":                    "ambient-github-token",
+			"GITLAB_TOKEN":                    "ambient-gitlab-token",
+			"RELEASE_HELM_OCI_PASSWORD":       "oci-secret",
+			"RELEASE_HELM_OCI_PASSWORD_FILE":  "/secrets/oci-token",
+			"RELEASE_HELM_CLASSIC_TOKEN":      "classic-secret",
+			"RELEASE_HELM_CLASSIC_TOKEN_FILE": "/secrets/classic-token",
 		},
 		commands: fake,
 		stdout:   ioDiscard(),
@@ -3403,11 +3438,14 @@ func TestRunGoreleaserWithTokenInjectsOnlyMappedToken(t *testing.T) {
 	}
 	for _, secret := range []string{
 		"RELEASE_TOKEN=ambient-release-token",
+		"RELEASE_TOKEN_FILE=/secrets/release-token",
 		"GITEA_TOKEN=ambient-gitea-token",
 		"GITHUB_TOKEN=ambient-github-token",
 		"GITLAB_TOKEN=ambient-gitlab-token",
 		"RELEASE_HELM_OCI_PASSWORD=oci-secret",
+		"RELEASE_HELM_OCI_PASSWORD_FILE=/secrets/oci-token",
 		"RELEASE_HELM_CLASSIC_TOKEN=classic-secret",
+		"RELEASE_HELM_CLASSIC_TOKEN_FILE=/secrets/classic-token",
 	} {
 		if envContains(cmd.Env, secret) {
 			t.Fatalf("GoReleaser environment contains secret %s", secret)

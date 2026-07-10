@@ -118,8 +118,9 @@
   `helm push` after GoReleaser succeeds.
 - Publish-time chart packages are written to a temporary directory outside the
   release repository so GoReleaser `--clean` cannot delete them before upload.
-- Explicit Helm OCI auth is resolved before GoReleaser publish starts and uses
-  `helm registry login --password-stdin --registry-config <temporary-file>`.
+- Explicit Helm OCI auth is validated before GoReleaser publish starts, but
+  `helm registry login --password-stdin --registry-config <temporary-file>` runs
+  only after GoReleaser succeeds and immediately before `helm push`.
 - When `RELEASE_HELM_CLASSIC_URL` is set, `publish` and `publish-tag` upload
   packaged charts to `<url>/api/charts` after GoReleaser succeeds.
 - Chart-enabled snapshot, publish, and publish-tag flows write

@@ -218,10 +218,12 @@ When charts are enabled, it also packages charts into `dist/charts`.
 
 `release-tools publish` and `release-tools publish-tag` package charts before
 GoReleaser publish starts. `publish-tag` performs that package step inside the
-clean temporary tag clone. When OCI chart publishing is configured, they push
-the packaged charts after GoReleaser succeeds. When classic Helm publishing is
-configured, they upload the packaged charts after GoReleaser succeeds. Missing
-or unreadable explicit chart publish auth is resolved before GoReleaser starts.
+clean temporary tag clone. When OCI chart publishing is configured, they log in
+with Helm and push the packaged charts after GoReleaser succeeds. When classic
+Helm publishing is configured, they upload the packaged charts after GoReleaser
+succeeds. Missing or unreadable explicit chart publish auth is resolved before
+GoReleaser starts, but authenticated Helm registry config files are created only
+after GoReleaser succeeds and immediately before `helm push`.
 
 Reason:
 
@@ -232,9 +234,9 @@ Reason:
   chart versions can be derived from the tag
 - chart-enabled publish commands fail before GoReleaser publish if local chart
   packaging fails
-- OCI chart push failures happen after GoReleaser publish and release body
-  patching have succeeded, so maintainers may need to retry chart publishing
-  after fixing registry auth or registry-side issues
+- OCI chart login and push failures happen after GoReleaser publish and release
+  body patching have succeeded, so maintainers may need to retry chart
+  publishing after fixing registry auth or registry-side issues
 - chart release manifests are written after chart package upload succeeds, so a
   failed remote chart publish does not leave a manifest that claims success
 - GoReleaser artifact paths copied back by `publish-tag` are constrained to

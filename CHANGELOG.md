@@ -34,6 +34,8 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and created temporary auth files with mode `0600` from the start
 - isolated fixture-based Helm smoke tests from ambient release environment
   variables so live Helm or forge credentials cannot override test fixtures
+- delayed authenticated Helm OCI registry login until after GoReleaser succeeds
+  so GoReleaser hooks cannot read temporary Helm registry credentials
 
 ### Removed
 
