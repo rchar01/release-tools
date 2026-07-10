@@ -1373,6 +1373,72 @@ func readReleaseOutputFile(root, relPath string) ([]byte, error) {
 	return os.ReadFile(target)
 }
 
+func removeReleaseOutputFile(root, relPath string) error {
+	cleanPath, err := cleanReleaseOutputRelPath(relPath)
+	if err != nil {
+		return err
+	}
+	relPath = cleanPath
+	if err := ensureNoSymlinkParents(root, relPath); err != nil {
+		return err
+	}
+	target := filepath.Join(root, relPath)
+	info, err := os.Lstat(target)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("release output file must not be a symlink: %s", target)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("release output file is not a regular file: %s", target)
+	}
+	return os.Remove(target)
+}
+
+func removeReleaseOutputDirectory(root, relPath string) error {
+	cleanPath, err := cleanReleaseOutputRelPath(relPath)
+	if err != nil {
+		return err
+	}
+	relPath = cleanPath
+	if err := ensureNoSymlinkParents(root, relPath); err != nil {
+		return err
+	}
+	target := filepath.Join(root, relPath)
+	info, err := os.Lstat(target)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("release output directory must not be a symlink: %s", target)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("release output path is not a directory: %s", target)
+	}
+	if err := filepath.WalkDir(target, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if path == target {
+			return nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("release output path must not contain symlinks: %s", path)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	return os.RemoveAll(target)
+}
+
 func fileSHA256(path string) (string, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -1932,10 +1998,10 @@ func (a *app) copyReleaseOutputsFrom(source *app) error {
 }
 
 func (a *app) clearReleaseManifestOutputs() error {
-	if err := os.Remove(filepath.Join(a.repoRoot, "dist", "release-manifest.json")); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := removeReleaseOutputFile(a.repoRoot, filepath.Join("dist", "release-manifest.json")); err != nil {
 		return err
 	}
-	if err := os.RemoveAll(filepath.Join(a.repoRoot, "dist", "charts")); err != nil {
+	if err := removeReleaseOutputDirectory(a.repoRoot, filepath.Join("dist", "charts")); err != nil {
 		return err
 	}
 	return nil

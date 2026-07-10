@@ -320,7 +320,7 @@ Metadata entries are skipped; unknown fields are ignored; missing checksums are
 filled from the referenced local file when it exists. GoReleaser artifact paths
 must resolve to regular files under repo-relative `dist/...` paths before they
 are written to the manifest or copied back by `publish-tag`; release-manifest
-write and copy-back targets also reject symlinked parents or targets. The
+write, cleanup, and copy-back targets also reject symlinked parents or targets. The
 provenance, OCI digest/signing, and classic fields appear only when those outputs
 or targets are configured. Manifest chart package paths are repo-relative
 `dist/charts/...` paths. During publish commands, charts are first packaged in a

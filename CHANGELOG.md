@@ -28,8 +28,8 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   requests
 - replaced unverified `releases/latest` Cosign install guidance with pinned and
   verified install examples
-- constrained release output artifact, chart, manifest, and manifest-upload
-  paths so they cannot follow symlinks or write outside `dist/`
+- constrained release output artifact, chart, manifest, cleanup, and upload
+  paths so they cannot follow symlinks or access paths outside `dist/`
 
 ### Removed
 
