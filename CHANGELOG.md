@@ -26,6 +26,8 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - made `publish-tag` reload repo-local release config from the clean tag clone
   so dirty current-worktree config cannot redirect token-bearing release API
   requests
+- replaced unverified `releases/latest` Cosign install guidance with pinned and
+  verified install examples
 
 ### Removed
 

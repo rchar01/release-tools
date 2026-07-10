@@ -244,7 +244,9 @@ constructs
 If Helm does not report a digest, signing fails rather than signing a mutable tag.
 Cosign is invoked as `cosign sign --yes <args> <digest-ref>`. Put non-secret
 signing flags in `RELEASE_HELM_OCI_SIGN_ARGS`; signing credentials remain owned
-by the selected tool and its environment.
+by the selected tool and its environment. Install Cosign from a trusted package
+source, or use the verified examples in
+[`cosign-installation.md`](cosign-installation.md).
 
 Set `RELEASE_HELM_PROVENANCE=1` to sign packaged charts with Helm's classic
 provenance support. When enabled, `RELEASE_HELM_GPG_KEY` and

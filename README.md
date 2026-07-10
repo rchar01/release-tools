@@ -51,16 +51,8 @@ Consumer repositories need:
 Maintainers of this repository also need Go `1.26`, Make, and Podman for the
 container verification path.
 
-Install Cosign with your trusted package manager or the upstream release binary.
-Linux amd64 example:
-
-```bash
-curl -O -L "https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-amd64"
-sudo mv cosign-linux-amd64 /usr/local/bin/cosign
-sudo chmod +x /usr/local/bin/cosign
-
-cosign version
-```
+Install Cosign from a trusted package source, or follow the verified install
+examples in [`docs/cosign-installation.md`](docs/cosign-installation.md).
 
 ## Installation
 
@@ -184,6 +176,8 @@ Documentation:
 - [`docs/usage.md`](docs/usage.md): consumer integration contract
 - [`docs/agent-release-flow.md`](docs/agent-release-flow.md): release-flow
   rationale and maintainer/agent notes
+- [`docs/cosign-installation.md`](docs/cosign-installation.md): verified Cosign
+  install examples
 - [`docs/future-work.md`](docs/future-work.md): deferred ideas and intentionally
   out-of-scope directions
 
