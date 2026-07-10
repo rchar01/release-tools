@@ -3,6 +3,11 @@ set -euo pipefail
 
 ROOT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
 IMAGE_NAME="${RELEASE_TOOLS_DEV_IMAGE:-release-tools-dev}"
+run_args=()
+
+if [[ -n "${RELEASE_TOOLS_CONTAINER_EXTRA_VOLUME:-}" ]]; then
+	run_args+=("-v" "$RELEASE_TOOLS_CONTAINER_EXTRA_VOLUME")
+fi
 
 podman build -f "$ROOT_DIR/Containerfile.dev" -t "$IMAGE_NAME" "$ROOT_DIR"
 
@@ -10,6 +15,7 @@ exec podman run --rm \
 	--workdir /workspace \
 	--user "$(id -u):$(id -g)" \
 	-v "$ROOT_DIR:/workspace:Z" \
+	"${run_args[@]}" \
 	-e HOME=/tmp \
 	"$IMAGE_NAME" \
 	bash -lc 'git config --global --add safe.directory /workspace && exec "$@"' bash \

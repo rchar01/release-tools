@@ -306,6 +306,10 @@ make container-test
 The dev container verifies pinned SHA-256 checksums before installing downloaded
 Go, GoReleaser, Helm, and Cosign release artifacts.
 
+Live Codeberg smoke-test tokens are not part of the dev-container image build
+context. They are staged outside the repository and mounted read-only only for
+the container run that performs the smoke test.
+
 For local verification outside the container, use:
 
 ```bash

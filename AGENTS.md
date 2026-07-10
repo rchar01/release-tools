@@ -89,7 +89,9 @@
   signing behavior.
 - Use `make codeberg-smoke-test` only with a token that can push to the smoke
   repository and create releases; package-registry access is needed to exercise
-  the Helm upload portion.
+  the Helm upload portion. Live smoke-test tokens must stay outside the
+  dev-container build context and be mounted only at container run time; the
+  host `realpath` tool is required for token-path validation.
 - Update `NEWS.md` and `CHANGELOG.md` from `Unreleased` to the release version
   before committing release prep.
 - Build the current CLI with `make build` before publishing this repository.

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
+ROOT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)"
 cd "$ROOT_DIR"
 
 CODEBERG_USERNAME="${CODEBERG_USERNAME:-rch}"
@@ -13,27 +13,64 @@ if [[ ! -r "$CODEBERG_TOKEN_FILE" ]]; then
 	printf 'Codeberg token file is not readable: %s\n' "$CODEBERG_TOKEN_FILE" >&2
 	exit 1
 fi
+if ! command -v realpath >/dev/null 2>&1; then
+	printf 'required tool not found: %s\n' realpath >&2
+	exit 1
+fi
+token_real="$(realpath "$CODEBERG_TOKEN_FILE")"
+token_path_abs="$(CDPATH='' cd -L -- "$(dirname -- "$CODEBERG_TOKEN_FILE")" && printf '%s/%s\n' "$(pwd -L)" "$(basename -- "$CODEBERG_TOKEN_FILE")")"
+token_path_real="$(CDPATH='' cd -- "$(dirname -- "$CODEBERG_TOKEN_FILE")" && pwd -P)/$(basename -- "$CODEBERG_TOKEN_FILE")"
+case "$token_path_abs" in
+"$ROOT_DIR" | "$ROOT_DIR"/*)
+	printf 'Codeberg token file path must stay outside repository build context: %s\n' "$CODEBERG_TOKEN_FILE" >&2
+	exit 1
+	;;
+esac
+case "$token_real" in
+"$ROOT_DIR" | "$ROOT_DIR"/*)
+	printf 'Codeberg token file must stay outside repository build context: %s\n' "$CODEBERG_TOKEN_FILE" >&2
+	exit 1
+	;;
+esac
+case "$token_path_real" in
+"$ROOT_DIR" | "$ROOT_DIR"/*)
+	printf 'Codeberg token file path must stay outside repository build context: %s\n' "$CODEBERG_TOKEN_FILE" >&2
+	exit 1
+	;;
+esac
+
+external_temp_dir() {
+	local prefix="$1"
+	local parent parent_real
+	parent="${TMPDIR:-/tmp}"
+	parent_real="$(CDPATH='' cd -- "$parent" 2>/dev/null && pwd -P || printf '%s\n' /tmp)"
+	parent="$parent_real"
+	case "$parent_real" in
+	"$ROOT_DIR" | "$ROOT_DIR"/*) parent=/tmp ;;
+	esac
+	mktemp -d "$parent/$prefix.XXXXXX"
+}
 
 if [[ "${RELEASE_TOOLS_CODEBERG_SMOKE_IN_CONTAINER:-}" != "1" ]] && command -v podman >/dev/null 2>&1; then
-	mkdir -p "$ROOT_DIR/.tmp"
-	token_copy="$ROOT_DIR/.tmp/codeberg-smoke-token"
-	trap 'rm -f "$token_copy"' EXIT
-	cp "$CODEBERG_TOKEN_FILE" "$token_copy"
-	chmod 0600 "$token_copy"
+	secret_dir="$(external_temp_dir release-tools-codeberg-smoke)"
+	token_copy="$secret_dir/codeberg-smoke-token"
+	trap 'rm -rf "$secret_dir"' EXIT
+	install -m 0600 "$CODEBERG_TOKEN_FILE" "$token_copy"
 	set +e
-	"$ROOT_DIR/scripts/in-container" env \
+	RELEASE_TOOLS_CONTAINER_EXTRA_VOLUME="$secret_dir:/run/release-tools-secrets:ro,Z" \
+		"$ROOT_DIR/scripts/in-container" env \
 		RELEASE_TOOLS_CODEBERG_SMOKE_IN_CONTAINER=1 \
 		CODEBERG_USERNAME="$CODEBERG_USERNAME" \
 		CODEBERG_SMOKE_OWNER="$CODEBERG_SMOKE_OWNER" \
 		CODEBERG_SMOKE_REPO="$CODEBERG_SMOKE_REPO" \
-		CODEBERG_TOKEN_FILE=/workspace/.tmp/codeberg-smoke-token \
+		CODEBERG_TOKEN_FILE=/run/release-tools-secrets/codeberg-smoke-token \
 		scripts/test-codeberg-smoke
 	status=$?
 	set -e
 	exit "$status"
 fi
 
-for tool in curl git go goreleaser helm jq; do
+for tool in curl git go goreleaser helm jq realpath; do
 	if ! command -v "$tool" >/dev/null 2>&1; then
 		printf 'required tool not found: %s\n' "$tool" >&2
 		exit 1
@@ -41,6 +78,7 @@ for tool in curl git go goreleaser helm jq; do
 done
 
 test_root="$ROOT_DIR/.tmp/codeberg-smoke"
+auth_dir=""
 repo_dir="$test_root/repo"
 bin_dir="$test_root/bin"
 release_tools_bin="$bin_dir/release-tools"
@@ -51,7 +89,9 @@ api_base="https://codeberg.org/api/v1"
 helm_base="https://codeberg.org/api/packages/$CODEBERG_SMOKE_OWNER/helm"
 
 cleanup() {
-	rm -f "$test_root/curl-auth.conf" "$test_root/netrc"
+	if [[ -n "$auth_dir" ]]; then
+		rm -rf "$auth_dir"
+	fi
 }
 trap cleanup EXIT
 
@@ -59,7 +99,7 @@ wait_for_url() {
 	url="$1"
 	pattern="$2"
 	for ((attempt = 1; attempt <= 30; attempt++)); do
-		if curl -fsS --netrc-file "$test_root/netrc" "$url" | grep -q "$pattern"; then
+		if curl -fsS --netrc-file "$auth_dir/netrc" "$url" | grep -q "$pattern"; then
 			return 0
 		fi
 		sleep 2
@@ -70,23 +110,25 @@ wait_for_url() {
 
 rm -rf "$test_root"
 mkdir -p "$bin_dir" "$repo_dir/cmd/smoke" "$repo_dir/charts/smoke" "$ROOT_DIR/.tmp/go-build" "$ROOT_DIR/.tmp/go-cache"
+auth_dir="$(external_temp_dir release-tools-codeberg-smoke-auth)"
 
 token="$(tr -d '\r\n' <"$CODEBERG_TOKEN_FILE")"
 if [[ -z "$token" ]]; then
 	printf 'Codeberg token file is empty: %s\n' "$CODEBERG_TOKEN_FILE" >&2
 	exit 1
 fi
-cat >"$test_root/curl-auth.conf" <<EOF
+install -m 0600 /dev/null "$auth_dir/curl-auth.conf"
+cat >"$auth_dir/curl-auth.conf" <<EOF
 header = "Authorization: token $token"
 EOF
-cat >"$test_root/netrc" <<EOF
+install -m 0600 /dev/null "$auth_dir/netrc"
+cat >"$auth_dir/netrc" <<EOF
 machine codeberg.org
 login $CODEBERG_USERNAME
 password $token
 EOF
-chmod 0600 "$test_root/curl-auth.conf" "$test_root/netrc"
 
-package_status="$(curl -sS -o /dev/null -w '%{http_code}' --netrc-file "$test_root/netrc" "$helm_base/index.yaml")"
+package_status="$(curl -sS -o /dev/null -w '%{http_code}' --netrc-file "$auth_dir/netrc" "$helm_base/index.yaml")"
 package_enabled=1
 case "$package_status" in
 200|404) ;;
@@ -179,7 +221,6 @@ RELEASE_PROJECT=release-tools-smoke
 RELEASE_FORGE=codeberg
 RELEASE_OWNER=$CODEBERG_SMOKE_OWNER
 RELEASE_REPO=$CODEBERG_SMOKE_REPO
-RELEASE_TOKEN_FILE=$CODEBERG_TOKEN_FILE
 RELEASE_ARTIFACTS=binaries,charts
 RELEASE_HELM_CHART_DIRS=charts/smoke
 RELEASE_HELM_VERSION_FROM=tag
@@ -194,7 +235,6 @@ if [[ "$package_enabled" == 1 ]]; then
 	cat >>"$repo_dir/.release-tools.env" <<EOF
 RELEASE_HELM_CLASSIC_URL=$helm_base
 RELEASE_HELM_CLASSIC_USERNAME=$CODEBERG_USERNAME
-RELEASE_HELM_CLASSIC_TOKEN_FILE=$CODEBERG_TOKEN_FILE
 EOF
 fi
 
@@ -225,9 +265,12 @@ GIT_ASKPASS="$test_root/git-askpass" \
 	"+refs/heads/main:refs/heads/main" \
 	"refs/tags/$tag:refs/tags/$tag"
 
-RELEASE_REPO_ROOT="$repo_dir" "$release_tools_bin" publish
+RELEASE_REPO_ROOT="$repo_dir" \
+	RELEASE_TOKEN_FILE="$CODEBERG_TOKEN_FILE" \
+	RELEASE_HELM_CLASSIC_TOKEN_FILE="$CODEBERG_TOKEN_FILE" \
+	"$release_tools_bin" publish
 
-release_json="$(curl -fsS --config "$test_root/curl-auth.conf" \
+release_json="$(curl -fsS --config "$auth_dir/curl-auth.conf" \
 	"$api_base/repos/$CODEBERG_SMOKE_OWNER/$CODEBERG_SMOKE_REPO/releases/tags/$tag")"
 if [[ "$release_json" != *"Codeberg smoke test for release-tools"* ]]; then
 	printf 'release body was not patched for %s\n' "$tag" >&2
@@ -238,7 +281,7 @@ if [[ -z "$release_id" || "$release_id" == "null" ]]; then
 	printf 'release id was not found for %s\n' "$tag" >&2
 	exit 1
 fi
-assets_json="$(curl -fsS --config "$test_root/curl-auth.conf" \
+assets_json="$(curl -fsS --config "$auth_dir/curl-auth.conf" \
 	"$api_base/repos/$CODEBERG_SMOKE_OWNER/$CODEBERG_SMOKE_REPO/releases/$release_id/assets")"
 if ! printf '%s\n' "$assets_json" | jq -e '.[] | select(.name == "release-manifest.json")' >/dev/null; then
 	printf 'release-manifest.json asset was not uploaded for %s\n' "$tag" >&2

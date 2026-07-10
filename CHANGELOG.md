@@ -30,6 +30,8 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   verified install examples
 - constrained release output artifact, chart, manifest, cleanup, and upload
   paths so they cannot follow symlinks or access paths outside `dist/`
+- kept live Codeberg smoke-test tokens outside the dev-container build context
+  and created temporary auth files with mode `0600` from the start
 
 ### Removed
 

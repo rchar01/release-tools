@@ -43,6 +43,154 @@ if [[ "$(<"$version_env_log")" != unset ]]; then
 	printf 'Makefile leaked VERSION into release-tools command environment\n' >&2
 	exit 1
 fi
+for ignore_file in .containerignore .dockerignore; do
+	for ignored_path in .git/ .tmp/ dist/; do
+		if ! grep -qx "$ignored_path" "$ignore_file"; then
+			printf '%s does not exclude %s from container build context\n' "$ignore_file" "$ignored_path" >&2
+			exit 1
+		fi
+	done
+done
+if grep -q '/workspace/.tmp/codeberg-smoke-token\|ROOT_DIR/.tmp/codeberg-smoke-token' scripts/test-codeberg-smoke; then
+	printf 'Codeberg smoke test stages token inside repository build context\n' >&2
+	exit 1
+fi
+for auth_file in curl-auth.conf netrc; do
+	if ! grep -q "install -m 0600 /dev/null \"\$auth_dir/$auth_file\"" scripts/test-codeberg-smoke; then
+		printf 'Codeberg smoke test does not create %s with mode 0600\n' "$auth_file" >&2
+		exit 1
+	fi
+done
+# shellcheck disable=SC2016
+if grep -q '\$test_root/curl-auth.conf\|\$test_root/netrc' scripts/test-codeberg-smoke; then
+	printf 'Codeberg smoke test writes token auth files under repo .tmp\n' >&2
+	exit 1
+fi
+smoke_secret_test="$ROOT_DIR/.tmp/codeberg smoke secret test"
+rm -rf "$smoke_secret_test"
+mkdir -p "$smoke_secret_test/bin" "$smoke_secret_test/tmp"
+external_token_dir="$(mktemp -d /tmp/release-tools-codeberg-token-test.XXXXXX)"
+cat >"$smoke_secret_test/bin/podman" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'cmd=%s\n' "${1:-}" >>"$PODMAN_LOG"
+for arg in "$@"; do
+	printf 'arg=%s\n' "$arg" >>"$PODMAN_LOG"
+done
+printf 'end\n' >>"$PODMAN_LOG"
+EOF
+chmod +x "$smoke_secret_test/bin/podman"
+printf '%s\n' token >"$external_token_dir/token"
+repo_token="$ROOT_DIR/.tmp/repo-codeberg-smoke-token"
+printf '%s\n' token >"$repo_token"
+set +e
+PATH="$smoke_secret_test/bin:$PATH" \
+	PODMAN_LOG="$smoke_secret_test/podman.log" \
+	CODEBERG_TOKEN_FILE="$repo_token" \
+	CODEBERG_USERNAME=test \
+	CODEBERG_SMOKE_OWNER=test \
+	CODEBERG_SMOKE_REPO=test \
+	scripts/test-codeberg-smoke >/dev/null 2>"$smoke_secret_test/repo-token.err"
+repo_token_status=$?
+set -e
+if [[ $repo_token_status -eq 0 ]]; then
+	printf 'Codeberg smoke test accepted repo-local token file\n' >&2
+	exit 1
+fi
+if [[ -f "$smoke_secret_test/podman.log" ]]; then
+	printf 'Codeberg smoke test invoked podman after repo-local token rejection\n' >&2
+	exit 1
+fi
+if ! grep -q 'must stay outside repository build context' "$smoke_secret_test/repo-token.err"; then
+	printf 'Codeberg smoke test did not explain repo-local token rejection\n' >&2
+	exit 1
+fi
+rm -f "$repo_token" "$smoke_secret_test/repo-token.err"
+repo_token_link="$ROOT_DIR/.tmp/repo-codeberg-smoke-token-link"
+ln -s "$external_token_dir" "$repo_token_link"
+set +e
+PATH="$smoke_secret_test/bin:$PATH" \
+	PODMAN_LOG="$smoke_secret_test/podman.log" \
+	CODEBERG_TOKEN_FILE="$repo_token_link/token" \
+	CODEBERG_USERNAME=test \
+	CODEBERG_SMOKE_OWNER=test \
+	CODEBERG_SMOKE_REPO=test \
+	scripts/test-codeberg-smoke >/dev/null 2>"$smoke_secret_test/repo-token-link.err"
+repo_token_link_status=$?
+set -e
+if [[ $repo_token_link_status -eq 0 ]]; then
+	printf 'Codeberg smoke test accepted repo-local symlink token path\n' >&2
+	exit 1
+fi
+if [[ -f "$smoke_secret_test/podman.log" ]]; then
+	printf 'Codeberg smoke test invoked podman after repo-local symlink token rejection\n' >&2
+	exit 1
+fi
+if ! grep -q 'must stay outside repository build context' "$smoke_secret_test/repo-token-link.err"; then
+	printf 'Codeberg smoke test did not explain repo-local symlink token rejection\n' >&2
+	exit 1
+fi
+rm -f "$repo_token_link" "$smoke_secret_test/repo-token-link.err"
+PATH="$smoke_secret_test/bin:$PATH" \
+	PODMAN_LOG="$smoke_secret_test/podman.log" \
+	TMPDIR="$smoke_secret_test/tmp" \
+	CODEBERG_TOKEN_FILE="$external_token_dir/token" \
+	CODEBERG_USERNAME=test \
+	CODEBERG_SMOKE_OWNER=test \
+	CODEBERG_SMOKE_REPO=test \
+	scripts/test-codeberg-smoke
+if grep -q "$ROOT_DIR/.tmp/codeberg-smoke-token\|/workspace/.tmp/codeberg-smoke-token" "$smoke_secret_test/podman.log"; then
+	printf 'Codeberg smoke token path entered podman build or run args under repo .tmp\n' >&2
+	exit 1
+fi
+if grep -q "$smoke_secret_test/tmp" "$smoke_secret_test/podman.log"; then
+	printf 'Codeberg smoke token was staged under repo-local TMPDIR\n' >&2
+	exit 1
+fi
+if ! grep -Eq -- '^arg=.*/release-tools-codeberg-smoke\.[^:]*:/run/release-tools-secrets:ro,Z$' "$smoke_secret_test/podman.log"; then
+	printf 'Codeberg smoke token was not mounted as a run-only read-only secret volume\n' >&2
+	exit 1
+fi
+if ! grep -Fxq 'arg=CODEBERG_TOKEN_FILE=/run/release-tools-secrets/codeberg-smoke-token' "$smoke_secret_test/podman.log"; then
+	printf 'Codeberg smoke container did not use mounted secret token path\n' >&2
+	exit 1
+fi
+rm -f "$smoke_secret_test/podman.log"
+PATH="$smoke_secret_test/bin:$PATH" \
+	PODMAN_LOG="$smoke_secret_test/podman.log" \
+	TMPDIR="$smoke_secret_test/missing" \
+	CODEBERG_TOKEN_FILE="$external_token_dir/token" \
+	CODEBERG_USERNAME=test \
+	CODEBERG_SMOKE_OWNER=test \
+	CODEBERG_SMOKE_REPO=test \
+	scripts/test-codeberg-smoke
+if ! grep -Eq -- '^arg=/tmp/release-tools-codeberg-smoke\.[^:]*:/run/release-tools-secrets:ro,Z$' "$smoke_secret_test/podman.log"; then
+	printf 'Codeberg smoke token did not fall back to /tmp for invalid TMPDIR\n' >&2
+	exit 1
+fi
+rm -f "$smoke_secret_test/podman.log"
+linked_root="$smoke_secret_test/linked repo"
+ln -s "$ROOT_DIR" "$linked_root"
+mkdir -p "$linked_root/.tmp/secret-tmp"
+PATH="$smoke_secret_test/bin:$PATH" \
+	PODMAN_LOG="$smoke_secret_test/podman.log" \
+	TMPDIR="$linked_root/.tmp/secret-tmp" \
+	CODEBERG_TOKEN_FILE="$external_token_dir/token" \
+	CODEBERG_USERNAME=test \
+	CODEBERG_SMOKE_OWNER=test \
+	CODEBERG_SMOKE_REPO=test \
+	"$linked_root/scripts/test-codeberg-smoke"
+if grep -q "$ROOT_DIR/.tmp/secret-tmp\|$linked_root/.tmp/secret-tmp" "$smoke_secret_test/podman.log"; then
+	printf 'Codeberg smoke token was staged under symlinked repo-local TMPDIR\n' >&2
+	exit 1
+fi
+if ! grep -Eq -- '^arg=/tmp/release-tools-codeberg-smoke\.[^:]*:/run/release-tools-secrets:ro,Z$' "$smoke_secret_test/podman.log"; then
+	printf 'Codeberg smoke token did not fall back to /tmp for symlinked repo TMPDIR\n' >&2
+	exit 1
+fi
+rm -rf "$ROOT_DIR/.tmp/secret-tmp"
+rm -rf "$smoke_secret_test"
+rm -rf "$external_token_dir"
 go test ./...
 go build -o .tmp/release-tools-test ./cmd/release-tools
 .tmp/release-tools-test help >/dev/null

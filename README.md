@@ -249,7 +249,9 @@ make helm-provenance-test
 Run the live Codeberg smoke test against `rch/release-tools-smoke` with a token
 that can push to that repository and create releases. The smoke verifies release
 body patching and manifest asset upload. Package-registry access is optional and
-enables the Helm upload portion of the smoke test:
+enables the Helm upload portion of the smoke test. When it runs in the dev
+container, the token is mounted at container run time and kept out of the image
+build context. The host needs `realpath` for token-path validation:
 
 ```bash
 make codeberg-smoke-test
