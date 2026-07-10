@@ -51,6 +51,26 @@ for ignore_file in .containerignore .dockerignore; do
 		fi
 	done
 done
+for smoke_script in scripts/test-helm-registries scripts/test-helm-oci-signing scripts/test-helm-provenance; do
+	if ! grep -Eq '^[[:space:]]*env -i[[:space:]]*\\$' "$smoke_script"; then
+		printf '%s does not isolate release-tools fixture invocation with env -i\n' "$smoke_script" >&2
+		exit 1
+	fi
+	for forbidden_env in \
+		'RELEASE_CONFIG_FILE=' \
+		'RELEASE_HELM_OCI_PASSWORD=' \
+		'RELEASE_HELM_CLASSIC_TOKEN=' \
+		'GORELEASER_BIN=' \
+		'GITEA_TOKEN=' \
+		'GITHUB_TOKEN=' \
+		'GITLAB_TOKEN='
+	do
+		if grep -Eq "^[[:space:]]+$forbidden_env" "$smoke_script"; then
+			printf '%s passes ambient-sensitive %s to isolated smoke test\n' "$smoke_script" "$forbidden_env" >&2
+			exit 1
+		fi
+	done
+done
 if grep -q '/workspace/.tmp/codeberg-smoke-token\|ROOT_DIR/.tmp/codeberg-smoke-token' scripts/test-codeberg-smoke; then
 	printf 'Codeberg smoke test stages token inside repository build context\n' >&2
 	exit 1
@@ -200,6 +220,103 @@ go build -o .tmp/release-tools-test ./cmd/release-tools
 .tmp/release-tools-test completion fish >/dev/null
 .tmp/release-tools-test completion powershell >/dev/null
 .tmp/release-tools-test __complete "" >/dev/null 2>/dev/null
+
+helm_env_test="$ROOT_DIR/.tmp/helm-env-isolation-test"
+rm -rf "$helm_env_test"
+mkdir -p "$helm_env_test/bin" "$helm_env_test/home" "$helm_env_test/repo/charts/demo"
+helm_env_log="$helm_env_test/helm.log"
+cat >"$helm_env_test/bin/helm" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >>"$HELM_ENV_ISOLATION_LOG"
+case "${1:-}" in
+package)
+	version=""
+	destination=""
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+		--version) version="$2"; shift 2 ;;
+		--destination) destination="$2"; shift 2 ;;
+		*) shift ;;
+		esac
+	done
+	mkdir -p "$destination"
+	printf 'fixture chart\n' >"$destination/demo-$version.tgz"
+	;;
+push)
+	printf 'Pushed: %s/demo:0.3.0\n' "$3"
+	printf 'Digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n'
+	;;
+esac
+EOF
+chmod +x "$helm_env_test/bin/helm"
+cat >"$helm_env_test/bin/goreleaser" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == --version ]]; then
+	printf 'goreleaser stub\n'
+fi
+exit 0
+EOF
+chmod +x "$helm_env_test/bin/goreleaser"
+cat >"$helm_env_test/repo/.goreleaser.yaml" <<'EOF'
+version: 2
+EOF
+cat >"$helm_env_test/repo/charts/demo/Chart.yaml" <<'EOF'
+apiVersion: v2
+name: demo
+version: 0.0.0
+EOF
+cat >"$helm_env_test/repo/NEWS.md" <<'EOF'
+# News
+
+## v0.3.0 - 2026-07-10
+
+- Helm environment isolation fixture.
+EOF
+cat >"$helm_env_test/repo/.release-tools.env" <<EOF
+RELEASE_PROJECT=demo
+RELEASE_FORGE=codeberg
+RELEASE_OWNER=owner
+RELEASE_REPO=demo
+RELEASE_ARTIFACTS=charts
+RELEASE_HELM_CHART_DIRS=charts/demo
+RELEASE_HELM_VERSION_FROM=tag
+RELEASE_HELM_APP_VERSION_FROM=tag
+RELEASE_HELM_OCI_REPOSITORY=oci://fixture.invalid/owner/charts
+RELEASE_NOTES_MODE=news-md
+RELEASE_NOTES_SOURCE=NEWS.md
+RELEASE_BODY_MODE=none
+GORELEASER_BIN=$helm_env_test/bin/goreleaser
+EOF
+git -C "$helm_env_test/repo" init --quiet
+git -C "$helm_env_test/repo" config user.email test@example.invalid
+git -C "$helm_env_test/repo" config user.name 'Test User'
+git -C "$helm_env_test/repo" add .goreleaser.yaml .release-tools.env NEWS.md charts/demo/Chart.yaml
+git -C "$helm_env_test/repo" commit --quiet -m 'helm env isolation fixture'
+git -C "$helm_env_test/repo" tag v0.3.0
+RELEASE_CONFIG_FILE=/missing-hostile.env \
+	RELEASE_HELM_OCI_REPOSITORY=oci://hostile.invalid/owner/charts \
+	RELEASE_HELM_OCI_USERNAME=hostile-user \
+	RELEASE_HELM_OCI_PASSWORD=hostile-password \
+	GORELEASER_BIN=/missing-hostile-goreleaser \
+	GITEA_TOKEN=hostile-forge-token \
+	env -i \
+	HELM_ENV_ISOLATION_LOG="$helm_env_log" \
+	HOME="$helm_env_test/home" \
+	PATH="$helm_env_test/bin:$PATH" \
+	RELEASE_REPO_ROOT="$helm_env_test/repo" \
+	RELEASE_TOKEN=fixture-forge-token \
+	"$ROOT_DIR/.tmp/release-tools-test" publish-tag v0.3.0 >/dev/null
+if grep -q 'hostile' "$helm_env_log"; then
+	printf 'isolated Helm smoke fixture inherited hostile release environment\n' >&2
+	exit 1
+fi
+if ! grep -q 'fixture.invalid' "$helm_env_log"; then
+	printf 'isolated Helm smoke fixture did not use fixture OCI repository\n' >&2
+	exit 1
+fi
+rm -rf "$helm_env_test"
 
 scripts/test-errors
 .tmp/release-tools-test doctor >/dev/null

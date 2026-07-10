@@ -38,7 +38,7 @@ wait_for_http() {
 	return 1
 }
 rm -rf "$test_root"
-mkdir -p "$bin_dir" "$repo_dir/charts/demo" "$ROOT_DIR/.tmp/go-build" "$ROOT_DIR/.tmp/go-cache"
+mkdir -p "$bin_dir" "$repo_dir/charts/demo" "$test_root/home" "$ROOT_DIR/.tmp/go-build" "$ROOT_DIR/.tmp/go-cache"
 cosign_bin="$(command -v cosign)"
 
 CGO_ENABLED=0 \
@@ -55,6 +55,12 @@ wait_for_http "http://127.0.0.1:$zot_port/v2/"
 
 COSIGN_PASSWORD="" "$cosign_bin" generate-key-pair \
 	--output-key-prefix "$test_root/cosign-key" >/dev/null
+"$cosign_bin" signing-config create \
+	--no-default-fulcio \
+	--no-default-oidc \
+	--no-default-rekor \
+	--no-default-tsa \
+	--out "$test_root/cosign-signing-config.json"
 
 cat >"$bin_dir/goreleaser" <<'EOF'
 #!/usr/bin/env bash
@@ -95,7 +101,7 @@ RELEASE_HELM_APP_VERSION_FROM=tag
 RELEASE_HELM_OCI_REPOSITORY=oci://localhost:$zot_port/owner/charts
 RELEASE_HELM_OCI_PLAIN_HTTP=1
 RELEASE_HELM_OCI_SIGNER=cosign
-RELEASE_HELM_OCI_SIGN_ARGS=--key $test_root/cosign-key.key --tlog-upload=false --allow-insecure-registry
+RELEASE_HELM_OCI_SIGN_ARGS=--key $test_root/cosign-key.key --signing-config $test_root/cosign-signing-config.json --allow-insecure-registry
 RELEASE_NOTES_MODE=news-md
 RELEASE_NOTES_SOURCE=NEWS.md
 RELEASE_BODY_MODE=none
@@ -109,8 +115,10 @@ git -C "$repo_dir" add .goreleaser.yaml .release-tools.env NEWS.md charts/demo/C
 git -C "$repo_dir" commit --quiet -m 'chart OCI signing smoke fixture'
 git -C "$repo_dir" tag "$tag"
 
-PATH="$bin_dir:$PATH" \
+env -i \
 	COSIGN_PASSWORD="" \
+	HOME="$test_root/home" \
+	PATH="$bin_dir:$PATH" \
 	RELEASE_REPO_ROOT="$repo_dir" \
 	RELEASE_TOKEN=forge-token \
 	"$release_tools_bin" publish-tag "$tag" >/dev/null

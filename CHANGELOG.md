@@ -32,6 +32,8 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   paths so they cannot follow symlinks or access paths outside `dist/`
 - kept live Codeberg smoke-test tokens outside the dev-container build context
   and created temporary auth files with mode `0600` from the start
+- isolated fixture-based Helm smoke tests from ambient release environment
+  variables so live Helm or forge credentials cannot override test fixtures
 
 ### Removed
 

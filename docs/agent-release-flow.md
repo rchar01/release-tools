@@ -310,6 +310,10 @@ Live Codeberg smoke-test tokens are not part of the dev-container image build
 context. They are staged outside the repository and mounted read-only only for
 the container run that performs the smoke test.
 
+Fixture-based Helm smoke tests run `release-tools` under a sanitized environment
+so ambient release or Helm credentials cannot override disposable local fixture
+configuration.
+
 For local verification outside the container, use:
 
 ```bash

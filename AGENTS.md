@@ -82,7 +82,9 @@
 - Use `make verify` and `make container-test` for release verification before
   tagging.
 - Use `make helm-registry-test` before releases that change Helm registry
-  publishing behavior.
+  publishing behavior; fixture-based Helm smoke tests must run `release-tools`
+  with a sanitized environment so live release credentials cannot override the
+  fixture config.
 - Use `make helm-oci-signing-test` before releases that change Helm OCI signing
   behavior.
 - Use `make helm-provenance-test` before releases that change Helm provenance

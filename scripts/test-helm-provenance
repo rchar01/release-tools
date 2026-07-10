@@ -26,7 +26,7 @@ cleanup() {
 trap cleanup EXIT
 
 rm -rf "$test_root"
-mkdir -p "$bin_dir" "$repo_dir/charts/demo" "$ROOT_DIR/.tmp/go-build" "$ROOT_DIR/.tmp/go-cache"
+mkdir -p "$bin_dir" "$repo_dir/charts/demo" "$test_root/home" "$ROOT_DIR/.tmp/go-build" "$ROOT_DIR/.tmp/go-cache"
 
 CGO_ENABLED=0 \
 	GOTMPDIR="$ROOT_DIR/.tmp/go-build" \
@@ -73,8 +73,10 @@ RELEASE_BODY_MODE=none
 GORELEASER_BIN=$bin_dir/goreleaser
 EOF
 
-PATH="$bin_dir:$PATH" \
+env -i \
 	GNUPGHOME="$gpg_home" \
+	HOME="$test_root/home" \
+	PATH="$bin_dir:$PATH" \
 	RELEASE_REPO_ROOT="$repo_dir" \
 	VERSION="$tag" \
 	"$release_tools_bin" snapshot >/dev/null

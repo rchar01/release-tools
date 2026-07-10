@@ -47,7 +47,7 @@ wait_for_http() {
 }
 
 rm -rf "$test_root"
-mkdir -p "$bin_dir" "$repo_dir/charts/demo" "$pull_dir" "$tls_dir" "$ROOT_DIR/.tmp/go-build" "$ROOT_DIR/.tmp/go-cache"
+mkdir -p "$bin_dir" "$repo_dir/charts/demo" "$pull_dir" "$tls_dir" "$test_root/home" "$ROOT_DIR/.tmp/go-build" "$ROOT_DIR/.tmp/go-cache"
 
 openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 1 \
 	-subj "/CN=127.0.0.1" \
@@ -138,9 +138,12 @@ git -C "$repo_dir" add .goreleaser.yaml .release-tools.env NEWS.md charts/demo/C
 git -C "$repo_dir" commit --quiet -m 'chart registry smoke fixture'
 git -C "$repo_dir" tag "$tag"
 
-RELEASE_REPO_ROOT="$repo_dir" \
-	SSL_CERT_FILE="$tls_dir/chartmuseum.crt" \
+env -i \
+	HOME="$test_root/home" \
+	PATH="$PATH" \
+	RELEASE_REPO_ROOT="$repo_dir" \
 	RELEASE_TOKEN=forge-token \
+	SSL_CERT_FILE="$tls_dir/chartmuseum.crt" \
 	"$release_tools_bin" publish-tag "$tag" >/dev/null
 
 HELM_REGISTRY_CONFIG="$test_root/helm-registry.json" \
