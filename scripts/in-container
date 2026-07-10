@@ -13,6 +13,7 @@ podman build -f "$ROOT_DIR/Containerfile.dev" -t "$IMAGE_NAME" "$ROOT_DIR"
 
 exec podman run --rm \
 	--workdir /workspace \
+	--userns=keep-id \
 	--user "$(id -u):$(id -g)" \
 	-v "$ROOT_DIR:/workspace:Z" \
 	"${run_args[@]}" \

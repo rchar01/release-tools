@@ -178,7 +178,8 @@
 - Go baseline is Go 1.26 with toolchain `go1.26.4`.
 - Dev-container verification uses Podman through `scripts/in-container`; the dev
   container is the source of required development tools, including Helm and
-  Cosign.
+  Cosign, and uses `--userns=keep-id` to keep mounted workspace writes
+  host-user-writable under rootless Podman.
 - Dev-container downloaded release-tool archives are verified with pinned
   SHA-256 checksums before installation.
 

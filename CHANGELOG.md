@@ -38,6 +38,8 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   so GoReleaser hooks cannot read temporary Helm registry credentials
 - rejected option-like Helm chart directory path components and passed chart
   paths to Helm after `--` so chart paths cannot be parsed as Helm flags
+- kept the caller UID/GID mapped in the Podman dev-container helper so rootless
+  `make container-test` runs can write generated files into the mounted repo
 
 ### Removed
 

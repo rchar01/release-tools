@@ -51,6 +51,36 @@ for ignore_file in .containerignore .dockerignore; do
 		fi
 	done
 done
+container_userns_test="$ROOT_DIR/.tmp/container-userns-test"
+rm -rf "$container_userns_test"
+mkdir -p "$container_userns_test/bin"
+cat >"$container_userns_test/bin/podman" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'cmd=%s\n' "${1:-}" >>"$PODMAN_LOG"
+for arg in "$@"; do
+	printf 'arg=%s\n' "$arg" >>"$PODMAN_LOG"
+done
+printf 'end\n' >>"$PODMAN_LOG"
+EOF
+chmod +x "$container_userns_test/bin/podman"
+PATH="$container_userns_test/bin:$PATH" \
+	PODMAN_LOG="$container_userns_test/podman.log" \
+	scripts/in-container true >/dev/null
+mapfile -t container_podman_cmds < <(grep '^cmd=' "$container_userns_test/podman.log")
+if [[ ${container_podman_cmds[0]:-} != cmd=build || ${container_podman_cmds[1]:-} != cmd=run ]]; then
+	printf 'in-container did not build the dev image before running it\n' >&2
+	exit 1
+fi
+if ! grep -Fxq 'arg=--userns=keep-id' "$container_userns_test/podman.log"; then
+	printf 'in-container does not keep the caller UID/GID mapped in rootless Podman\n' >&2
+	exit 1
+fi
+if ! grep -Fxq "arg=--user" "$container_userns_test/podman.log" || \
+	! grep -Fxq "arg=$(id -u):$(id -g)" "$container_userns_test/podman.log"; then
+	printf 'in-container does not run as the caller numeric UID/GID\n' >&2
+	exit 1
+fi
 for smoke_script in scripts/test-helm-registries scripts/test-helm-oci-signing scripts/test-helm-provenance; do
 	if ! grep -Eq '^[[:space:]]*env -i[[:space:]]*\\$' "$smoke_script"; then
 		printf '%s does not isolate release-tools fixture invocation with env -i\n' "$smoke_script" >&2
@@ -373,20 +403,25 @@ set -euo pipefail
 printf 'helm-pwd %s\n' "$PWD" >>"$HELM_LOG"
 printf 'helm %s\n' "$*" >>"$HELM_LOG"
 if [[ "${1:-}" == package ]]; then
-  chart="${2:?missing chart}"
+  chart=""
   version=""
   destination=""
   signed=0
-  shift 2
+  shift
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --version) version="${2:?missing version}"; shift 2 ;;
       --app-version) shift 2 ;;
       --destination) destination="${2:?missing destination}"; shift 2 ;;
       --sign) signed=1; shift ;;
+      --) chart="${2:?missing chart}"; shift 2 ;;
       *) shift ;;
     esac
   done
+  if [[ -z "$chart" || -z "$version" || -z "$destination" ]]; then
+    printf 'incomplete helm package args\n' >&2
+    exit 1
+  fi
   mkdir -p "$destination"
   touch "$destination/$(basename -- "$chart")-$version.tgz"
   if [[ $signed -eq 1 ]]; then
@@ -436,17 +471,17 @@ git -C "$chart_test_dir" tag v1.2.3
 HELM_LOG="$chart_test_dir/helm.log" \
   GORELEASER_LOG="$chart_test_dir/goreleaser.log" \
   PATH="$stub_bin:$PATH" \
-  RELEASE_REPO_ROOT="$chart_test_dir" \
-  .tmp/release-tools-test check >/dev/null
-grep -q 'helm dependency update --skip-refresh charts/demo' "$chart_test_dir/helm.log"
-grep -q 'helm lint charts/demo' "$chart_test_dir/helm.log"
+	RELEASE_REPO_ROOT="$chart_test_dir" \
+	.tmp/release-tools-test check >/dev/null
+grep -q 'helm dependency update --skip-refresh -- charts/demo' "$chart_test_dir/helm.log"
+grep -q 'helm lint -- charts/demo' "$chart_test_dir/helm.log"
 HELM_LOG="$chart_test_dir/helm.log" \
   GORELEASER_LOG="$chart_test_dir/goreleaser.log" \
   PATH="$stub_bin:$PATH" \
-  RELEASE_REPO_ROOT="$chart_test_dir" \
-  VERSION=v1.2.3 \
-  .tmp/release-tools-test snapshot >/dev/null
-grep -q 'helm package charts/demo --version 1.2.3 --app-version 1.2.3 --destination dist/charts --sign --key maintainer@example.org --keyring .*/release-keyring.gpg' "$chart_test_dir/helm.log"
+	RELEASE_REPO_ROOT="$chart_test_dir" \
+	VERSION=v1.2.3 \
+	.tmp/release-tools-test snapshot >/dev/null
+grep -q 'helm package --version 1.2.3 --app-version 1.2.3 --destination dist/charts --sign --key maintainer@example.org --keyring .*/release-keyring.gpg -- charts/demo' "$chart_test_dir/helm.log"
 test -f "$chart_test_dir/dist/charts/demo-1.2.3.tgz"
 test -f "$chart_test_dir/dist/charts/demo-1.2.3.tgz.prov"
 test -f "$chart_test_dir/dist/release-manifest.json"
@@ -461,10 +496,10 @@ HELM_LOG="$chart_test_dir/helm.log" \
   RELEASE_REPO_ROOT="$chart_test_dir" \
   RELEASE_TOKEN=token \
   RELEASE_HELM_OCI_USERNAME=robot \
-  RELEASE_HELM_OCI_PASSWORD=registry-token \
-  VERSION=v1.2.3 \
-  .tmp/release-tools-test publish >/dev/null
-grep -q 'helm package charts/demo --version 1.2.3 --app-version 1.2.3 --destination .*/release-tools-helm-charts-v1.2.3-.* --sign --key maintainer@example.org --keyring .*/release-keyring.gpg' "$chart_test_dir/helm.log"
+	RELEASE_HELM_OCI_PASSWORD=registry-token \
+	VERSION=v1.2.3 \
+	.tmp/release-tools-test publish >/dev/null
+grep -q 'helm package --version 1.2.3 --app-version 1.2.3 --destination .*/release-tools-helm-charts-v1.2.3-.* --sign --key maintainer@example.org --keyring .*/release-keyring.gpg -- charts/demo' "$chart_test_dir/helm.log"
 grep -q 'helm registry login registry.example --username robot --password-stdin --registry-config' "$chart_test_dir/helm.log"
 grep -q 'helm push .*/demo-1.2.3.tgz oci://registry.example/charts' "$chart_test_dir/helm.log"
 grep -q 'goreleaser --config .goreleaser.yaml release --clean --release-notes' "$chart_test_dir/goreleaser.log"
@@ -476,10 +511,10 @@ HELM_LOG="$chart_test_dir/helm.log" \
   PATH="$stub_bin:$PATH" \
   RELEASE_REPO_ROOT="$chart_test_dir" \
   RELEASE_TOKEN=token \
-  RELEASE_HELM_OCI_USERNAME=robot \
-  RELEASE_HELM_OCI_PASSWORD=registry-token \
-  .tmp/release-tools-test publish-tag v1.2.3 >/dev/null
-grep -q 'helm package charts/demo --version 1.2.3 --app-version 1.2.3 --destination .*/release-tools-helm-charts-v1.2.3-.* --sign --key maintainer@example.org --keyring .*/release-keyring.gpg' "$chart_test_dir/helm.log"
+	RELEASE_HELM_OCI_USERNAME=robot \
+	RELEASE_HELM_OCI_PASSWORD=registry-token \
+	.tmp/release-tools-test publish-tag v1.2.3 >/dev/null
+grep -q 'helm package --version 1.2.3 --app-version 1.2.3 --destination .*/release-tools-helm-charts-v1.2.3-.* --sign --key maintainer@example.org --keyring .*/release-keyring.gpg -- charts/demo' "$chart_test_dir/helm.log"
 grep -q 'helm registry login registry.example --username robot --password-stdin --registry-config' "$chart_test_dir/helm.log"
 grep -q 'helm push .*/demo-1.2.3.tgz oci://registry.example/charts' "$chart_test_dir/helm.log"
 grep -q "helm-pwd $chart_test_dir/.tmp/release-v1.2.3" "$chart_test_dir/helm.log"
