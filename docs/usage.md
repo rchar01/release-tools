@@ -12,13 +12,15 @@ The goal is:
 
 Ready-to-copy starting points are included in this repository:
 
-- `examples/.release-tools.env`
-- `examples/chart-release.env`
-- `examples/forgejo-release.yml`
+- [`examples/.release-tools.env`](../examples/.release-tools.env)
+- [`examples/chart-release.env`](../examples/chart-release.env)
+- [`examples/forgejo-release.yml`](../examples/forgejo-release.yml)
 
-Use `examples/chart-release.env` by copying it into the consuming repository as
-`.release-tools.env`, or set `RELEASE_CONFIG_FILE` explicitly when using another
-file name.
+Binary-oriented projects can copy
+[`examples/.release-tools.env`](../examples/.release-tools.env). Chart-enabled
+projects can copy [`examples/chart-release.env`](../examples/chart-release.env).
+Copy the chosen file into the consuming repository as `.release-tools.env`, or
+set `RELEASE_CONFIG_FILE` explicitly when using another file name.
 
 ## Required Project Files
 
@@ -75,7 +77,6 @@ Example:
 RELEASE_PROJECT=platformctl
 RELEASE_FORGE=codeberg
 RELEASE_OWNER=rch
-RELEASE_REPO=platformctl
 RELEASE_NOTES_SOURCE=NEWS.md
 RELEASE_NOTES_MODE=news-md
 RELEASE_BODY_MODE=patch
@@ -92,6 +93,9 @@ Supported `RELEASE_FORGE` values:
 
 `codeberg`, `gitea`, and `forgejo` use Codeberg-compatible defaults unless
 `RELEASE_API_URL` is set explicitly.
+
+`RELEASE_REPO` is optional. If unset, it defaults to `RELEASE_PROJECT`. Set it
+only when the forge repository name differs from the project name.
 
 ## 3. Review Supported Variables
 
@@ -413,11 +417,16 @@ validate at release time.
 
 ## 5. Add A Release Notes Source
 
-If the project generates release notes from `NEWS.md`, choose one of the
+If the project generates release notes from `NEWS.md`, choose one of these
 supported modes:
 
 - `RELEASE_NOTES_MODE=news-md`
 - `RELEASE_NOTES_MODE=gnu-news`
+- `RELEASE_NOTES_MODE=none`
+
+The default is `news-md`. When `RELEASE_NOTES_MODE=none`, the `notes` command
+fails with a disabled-generation error and publish commands do not generate a
+release notes file from `RELEASE_NOTES_SOURCE`.
 
 Use `news-md` for Markdown sections matching release tags.
 
@@ -462,6 +471,16 @@ heading, stops at the next GNU release heading, and preserves the body below the
 heading in the final release notes file. That includes `**` subsection headings
 and indented bullets.
 
+Release body patching is controlled separately:
+
+- `RELEASE_BODY_MODE=none`
+- `RELEASE_BODY_MODE=patch`
+
+The default is `none`. With `patch`, `release-tools publish` and
+`release-tools publish-tag` patch the forge release body after GoReleaser
+publishes and after release notes are generated. With `none`, no release body
+patch request is made.
+
 ## 6. Add CI Release Workflow
 
 CI should:
@@ -472,8 +491,8 @@ CI should:
 - run project tests
 - run `release-tools publish` from the project root
 
-Use `examples/forgejo-release.yml` in this repository as a ready-to-copy
-starting point.
+Use [`examples/forgejo-release.yml`](../examples/forgejo-release.yml) in this
+repository as a ready-to-copy starting point.
 
 ## 7. Token And Auth Contract
 
@@ -523,6 +542,7 @@ Run commands from the consumer repo root:
 
 ```bash
 release-tools version
+release-tools tools-check
 release-tools doctor
 release-tools check
 release-tools snapshot
@@ -543,6 +563,10 @@ release-tools completion powershell
 Install or source the generated script according to your shell's completion
 setup. Completion generation, `help`, and `version` do not require a release
 config file.
+
+`tools-check` validates local tools needed by the configured release shape. It
+does not require `RELEASE_PROJECT` or `RELEASE_OWNER`; use `doctor` when you want
+both tool and release metadata validation.
 
 `release-tools publish-tag` publishes from a clean full-history clone detached at
 the exact repo tag. Keeping tag history available lets GoReleaser discover the
@@ -594,11 +618,12 @@ The consuming project should not duplicate these behaviors.
 After wiring a project to `release-tools`, verify:
 
 1. `release-tools version`
-2. `release-tools doctor`
-3. `release-tools check`
-4. `release-tools snapshot`
-5. `release-tools notes <current-tag>`
-6. `release-tools publish-tag <older-project-tag>`
+2. `release-tools tools-check`
+3. `release-tools doctor`
+4. `release-tools check`
+5. `release-tools snapshot`
+6. `release-tools notes <current-tag>`
+7. `release-tools publish-tag <older-project-tag>`
 
 For the last command, it is fine to test with an intentionally invalid token if
 you only want to verify the flow gets through clone, notes, and build without

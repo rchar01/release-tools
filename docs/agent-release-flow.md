@@ -333,7 +333,8 @@ from the project root.
 When a repository uses its own CLI to release itself, build the current CLI
 before publishing and invoke that binary by path. Publishing should still go
 through the CLI rather than through a Make publish target, but do not prepend a
-repo-local build directory to `PATH` for a privileged publish:
+repo-local build directory to `PATH` for a privileged publish. The canonical
+self-release procedure for this repository is [`self-release.md`](self-release.md):
 
 ```bash
 ./.tmp/release-tools publish-tag vX.Y.Z

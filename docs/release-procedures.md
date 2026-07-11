@@ -42,7 +42,12 @@ A consumer repository usually starts with these files:
   publishing container images
 - a CI workflow when releases are published from CI
 
-The chart config example is [`../examples/chart-release.env`](../examples/chart-release.env).
+Config examples:
+
+- [`../examples/.release-tools.env`](../examples/.release-tools.env) for a
+  binary-oriented release
+- [`../examples/chart-release.env`](../examples/chart-release.env) for binaries
+  plus Helm chart artifacts
 
 ## Binary-Only Release
 
@@ -55,12 +60,14 @@ Minimal `.release-tools.env`:
 RELEASE_PROJECT=myapp
 RELEASE_FORGE=codeberg
 RELEASE_OWNER=myowner
-RELEASE_REPO=myapp
 RELEASE_NOTES_SOURCE=NEWS.md
 RELEASE_NOTES_MODE=news-md
 RELEASE_BODY_MODE=patch
 GORELEASER_CONFIG=.goreleaser.yaml
 ```
+
+`RELEASE_REPO` defaults to `RELEASE_PROJECT`; set it only when the repository
+name differs from the project name.
 
 The project-owned `.goreleaser.yaml` should define the build matrix, archive
 names, checksum file, and forge release settings. `release-tools` invokes
@@ -120,7 +127,6 @@ Minimal `.release-tools.env`:
 RELEASE_PROJECT=myapp
 RELEASE_FORGE=codeberg
 RELEASE_OWNER=myowner
-RELEASE_REPO=myapp
 RELEASE_NOTES_SOURCE=NEWS.md
 RELEASE_NOTES_MODE=news-md
 RELEASE_BODY_MODE=patch
@@ -243,6 +249,7 @@ Run these from the repository root:
 
 ```bash
 release-tools version
+release-tools tools-check
 release-tools doctor
 release-tools check
 VERSION=v1.2.3 release-tools snapshot

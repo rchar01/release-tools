@@ -79,6 +79,8 @@
 
 ## Self-Release Procedure
 - Do not use Make as the publish frontend.
+- Follow `docs/self-release.md` as the canonical maintainer self-release
+  procedure.
 - Use `make verify` and `make container-test` for release verification before
   tagging.
 - Use `make helm-registry-test` before releases that change Helm registry

@@ -91,7 +91,6 @@ Add `.release-tools.env` to the repository that will use `release-tools`:
 RELEASE_PROJECT=mycli
 RELEASE_FORGE=codeberg
 RELEASE_OWNER=myowner
-RELEASE_REPO=mycli
 RELEASE_NOTES_SOURCE=NEWS.md
 RELEASE_NOTES_MODE=news-md
 RELEASE_BODY_MODE=patch
@@ -107,6 +106,7 @@ Run local checks from the consumer repository root:
 
 ```bash
 release-tools version
+release-tools tools-check
 release-tools doctor
 release-tools check
 release-tools snapshot
@@ -131,6 +131,7 @@ release-token variables before invoking GoReleaser.
 | Command | Purpose |
 | --- | --- |
 | `release-tools version` | Print the installed `release-tools` version. |
+| `release-tools tools-check` | Check required local tools for the configured release. |
 | `release-tools doctor` | Validate release config and required tools. |
 | `release-tools check` | Run `goreleaser check`. |
 | `release-tools snapshot` | Run a local snapshot build without publishing. |
@@ -166,9 +167,10 @@ Ready-to-copy consumer starting points:
 - [`examples/chart-release.env`](examples/chart-release.env)
 - [`examples/forgejo-release.yml`](examples/forgejo-release.yml)
 
-Use `examples/chart-release.env` by copying it into the consumer repository as
-`.release-tools.env`, or set `RELEASE_CONFIG_FILE` explicitly when using another
-file name.
+Binary-oriented projects can copy `examples/.release-tools.env`; chart-enabled
+projects can copy `examples/chart-release.env`. Copy the chosen file into the
+consumer repository as `.release-tools.env`, or set `RELEASE_CONFIG_FILE`
+explicitly when using another file name.
 
 Documentation:
 
@@ -176,6 +178,8 @@ Documentation:
 - [`docs/usage.md`](docs/usage.md): consumer integration contract
 - [`docs/release-procedures.md`](docs/release-procedures.md): scenario-based
   release procedures for binaries, containers, and Helm charts
+- [`docs/self-release.md`](docs/self-release.md): maintainer self-release
+  procedure for this repository
 - [`docs/agent-release-flow.md`](docs/agent-release-flow.md): release-flow
   rationale and maintainer/agent notes
 - [`docs/cosign-installation.md`](docs/cosign-installation.md): verified Cosign
@@ -270,40 +274,10 @@ scripts/test-errors
 
 ## Self-Release
 
-`release-tools` releases itself with the `release-tools` CLI. The Makefile is
-only used for verification and for building a current local binary when the
-globally installed CLI may not include unreleased behavior yet.
-
-Before tagging, run verification and update `NEWS.md` and `CHANGELOG.md` from
-`Unreleased` to the release version:
-
-```bash
-make verify
-make container-test
-```
-
-Also run `make helm-registry-test` for Helm registry publishing changes,
-`make helm-oci-signing-test` for Helm OCI signing changes, and
-`make helm-provenance-test` for Helm provenance signing changes.
-
-After committing and pushing the release prep, create and push the tag:
-
-```bash
-git tag -a vX.Y.Z -m "vX.Y.Z"
-git push cb main vX.Y.Z
-```
-
-Build the current CLI and publish from the exact tag:
-
-```bash
-make build
-./.tmp/release-tools publish-tag vX.Y.Z
-```
-
-This keeps `release-tools` as the publishing frontend while avoiding reliance on
-an older installed binary during self-release bootstrapping. Invoke the binary by
-path instead of prepending `.tmp` to `PATH`, so child tool resolution does not
-trust every executable in the repo-local build directory during publishing.
+`release-tools` releases itself with the `release-tools` CLI. The root
+`Makefile` is only used for maintainer verification and for building the current
+local binary before publish. Follow [`docs/self-release.md`](docs/self-release.md)
+for the canonical self-release procedure.
 
 ## License
 

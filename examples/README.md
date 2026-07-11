@@ -14,6 +14,7 @@ Suggested usage:
 
 Files:
 
-- `.release-tools.env`: example release-tools CLI config
-- `chart-release.env`: example config for binaries plus Helm chart artifacts
-- `forgejo-release.yml`: example release workflow
+- [`.release-tools.env`](.release-tools.env): example release-tools CLI config
+- [`chart-release.env`](chart-release.env): example config for binaries plus Helm
+  chart artifacts
+- [`forgejo-release.yml`](forgejo-release.yml): example release workflow
