@@ -9,6 +9,8 @@ Suggested usage:
 2. for binary-only projects, copy `.release-tools.env` to the repository root
 3. for Helm chart projects, copy `chart-release.env` as `.release-tools.env`
 4. adapt `.goreleaser.yaml`, `NEWS.md`, and CI workflow details for the project
+5. follow [`../docs/release-procedures.md`](../docs/release-procedures.md) for
+   container and chart scenarios
 
 Files:
 

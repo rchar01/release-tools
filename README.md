@@ -174,6 +174,8 @@ Documentation:
 
 - [`docs/README.md`](docs/README.md): docs index
 - [`docs/usage.md`](docs/usage.md): consumer integration contract
+- [`docs/release-procedures.md`](docs/release-procedures.md): scenario-based
+  release procedures for binaries, containers, and Helm charts
 - [`docs/agent-release-flow.md`](docs/agent-release-flow.md): release-flow
   rationale and maintainer/agent notes
 - [`docs/cosign-installation.md`](docs/cosign-installation.md): verified Cosign

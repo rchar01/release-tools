@@ -4,6 +4,8 @@ Short summary of the documentation in this directory:
 
 - `usage.md`: canonical consumer guide and public integration contract for
   installed-CLI users of `release-tools`
+- `release-procedures.md`: scenario-based procedures for binary, container image,
+  and Helm chart releases
 - `agent-release-flow.md`: implementation rationale, invariants, and reusable
   release-flow pattern for maintainers and agents
 - `cosign-installation.md`: verified Cosign install examples for signing-related
@@ -11,5 +13,5 @@ Short summary of the documentation in this directory:
 - `future-work.md`: deferred ideas and intentionally out-of-scope release-tooling
   directions
 
-Start with `usage.md` if you are integrating `release-tools` into another
-repository.
+Start with `release-procedures.md` for scenario-based setup steps, then use
+`usage.md` as the canonical variable contract.
