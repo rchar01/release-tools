@@ -96,8 +96,8 @@
   the Helm upload portion. Live smoke-test tokens must stay outside the
   dev-container build context and be mounted only at container run time; the
   host `realpath` tool is required for token-path validation.
-- Update `NEWS.md` and `CHANGELOG.md` from `Unreleased` to the release version
-  before committing release prep.
+- Add the release entry to `NEWS.md` and move `CHANGELOG.md` `Unreleased`
+  entries to the release version before committing release prep.
 - Build the current CLI with `make build` before publishing this repository.
 - Publish with `./.tmp/release-tools publish-tag vX.Y.Z`.
 - This intentionally invokes the just-built CLI by path so self-release does not

@@ -8,8 +8,8 @@ builds. Publishing still goes through the `release-tools` CLI.
 
 ## Before Tagging
 
-1. Update `NEWS.md` and `CHANGELOG.md` from `Unreleased` to the target release
-   version.
+1. Add the target release entry to `NEWS.md`, and move `CHANGELOG.md`
+   `Unreleased` entries to the target release version.
 2. Run the default verification suite:
 
    ```bash

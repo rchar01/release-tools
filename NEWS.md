@@ -2,6 +2,23 @@
 
 This file gives a short, release-oriented view of what changed between versions.
 
+## v3.5.0 - 2026-07-12
+
+- harden release credential handling by keeping token-file variables out of
+  repo-local config, non-publishing GoReleaser runs, dirty `publish-tag`
+  worktrees, fixture-based Helm smoke tests, and dev-container build contexts
+- harden Helm and release-output paths by requiring HTTPS for classic Helm
+  uploads, delaying Helm OCI login until after GoReleaser succeeds, rejecting
+  option-like chart path components, and constraining copied release outputs to
+  safe paths under `dist/`
+- improve release verification with checksum-verified dev-container tool
+  installs, pinned Cosign installation guidance, safer Codeberg smoke-test
+  secrets, and rootless Podman keep-id writes
+- simplify the public release artifact matrix to Linux amd64 and Darwin amd64
+  binaries plus checksums
+- clarify consumer release procedures and maintainer self-release steps,
+  including publishing this repository with a just-built `release-tools` binary
+
 ## v3.4.0 - 2026-07-09
 
 - add chart-aware release orchestration with `RELEASE_ARTIFACTS=charts`, Helm
